@@ -2,7 +2,7 @@
 
 FROM ubuntu:22.04@sha256:27cb6e6ccef575a4698b66f5de06c7ecd61589132d5a91d098f7f3f9285415a9 AS clone
 # renovate: datasource=github-releases depName=containers/buildah
-ARG BUILDAH_VERSION=1.28.2
+ARG BUILDAH_VERSION=1.29.0
 RUN apt-get update \
  && apt-get -y install --no-install-recommends \
         git \
