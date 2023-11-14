@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:base",
-    
+
     ":label(type/renovate)",
 
     ":docker",
@@ -17,20 +17,20 @@
     ":automergeRequireAllStatusChecks",
     ":automergeAll",
     ":semanticCommits",
-    
+
     ":enableVulnerabilityAlerts",
     ":enableVulnerabilityAlertsWithLabel(security)"
   ],
-  
+
   "rebaseWhen": "conflicted",
   "platformAutomerge": true,
   "rebaseLabel": "renovate/rebase",
   "stopUpdatingLabel": "renovate/stop-updating",
 
-  "major":  { "labels": ["bump/major"] },
-  "minor":  { "labels": ["bump/minor"] },
-  "patch":  { "labels": ["bump/patch"] },
-  "pin":    { "labels": ["bump/pin"] },
+  "major": { "labels": ["bump/major"] },
+  "minor": { "labels": ["bump/minor"] },
+  "patch": { "labels": ["bump/patch"] },
+  "pin": { "labels": ["bump/pin"] },
   "digest": { "labels": ["bump/digest"] },
 
   "regexManagers": [
@@ -43,18 +43,14 @@
     },
     {
       "fileMatch": ["(^|/|\\.)Dockerfile[^/]*$"],
-      "matchStrings": [
-        "#syntax=(?<depName>.*?):(?<currentValue>.*?)\\n"
-      ],
+      "matchStrings": ["#syntax=(?<depName>.*?):(?<currentValue>.*?)\\n"],
       "datasourceTemplate": "docker"
     }
   ],
 
   "packageRules": [
     {
-      "packageNames": [
-        "containers/buildah"
-      ],
+      "packageNames": ["containers/buildah"],
       "extractVersion": "^v(?<version>.+)$"
     }
   ]

@@ -7,7 +7,6 @@ on:
   pull_request:
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -17,7 +16,6 @@ jobs:
           - amd64
           - arm64
     steps:
-
       - name: Checkout
         uses: actions/checkout@v3
 
@@ -46,14 +44,13 @@ jobs:
   release:
     if: always() && github.event_name != 'pull_request'
     needs:
-    - build
+      - build
     runs-on: ubuntu-latest
     steps:
-
       - name: Checkout
         uses: actions/checkout@v3
-    
-      - uses: actions/download-artifact@v3  
+
+      - uses: actions/download-artifact@v3
 
       - name: Get version
         id: get_version
