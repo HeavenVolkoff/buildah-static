@@ -3,14 +3,14 @@ name: build-static
 on:
   push:
     paths:
-      - 'Dockerfile'
-      - '.github/workflows/release.yml'
+      - "Dockerfile"
+      - ".github/workflows/release.yml"
     branches:
       - main
   pull_request:
     paths:
-      - 'Dockerfile'
-      - '.github/workflows/release.yml'
+      - "Dockerfile"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 # Cancel previous runs of the same workflow on the same branch.

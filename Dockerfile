@@ -45,8 +45,7 @@ RUN test -n "${BUILDAH_VERSION}" \
     && git clone --config advice.detachedHead=false --depth 1 --branch "v${BUILDAH_VERSION}" \
     https://github.com/containers/buildah .
 
-RUN export CNI_VERSION="$(grep '^# github.com/containernetworking/cni ' src/modules.txt | sed 's,.* ,,')" \
-    && env \
+RUN env \
     CFLAGS='-static -pthread' \
     LDFLAGS="-s -w -static-libgcc -static" \
     BUILDTAGS='static netgo osusergo exclude_graphdriver_devicemapper seccomp apparmor selinux' \
