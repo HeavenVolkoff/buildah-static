@@ -5,7 +5,7 @@ ARG BUILDAH_VERSION=1.33.2
 
 #--
 
-FROM debian:bookworm AS build-base
+FROM debian:sid AS build-base
 
 SHELL ["bash", "-euxo", "pipefail", "-c"]
 
