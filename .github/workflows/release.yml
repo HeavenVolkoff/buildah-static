@@ -48,7 +48,7 @@ jobs:
           gzip buildah-${{ matrix.arch }}.tar
 
       - name: Store tarball
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: buildah-${{ matrix.arch }}.tar.gz
           path: buildah-${{ matrix.arch }}.tar.gz
