@@ -1,7 +1,7 @@
 #syntax=docker/dockerfile:1.6.0
 
 # renovate: datasource=github-releases depName=containers/buildah
-ARG BUILDAH_VERSION=1.33.2
+ARG BUILDAH_VERSION=1.34.0
 
 #--
 
@@ -44,9 +44,7 @@ WORKDIR /srv/buildah
 ARG BUILDAH_VERSION
 RUN test -n "${BUILDAH_VERSION}" \
     && git clone --config advice.detachedHead=false --depth 1 --branch "v${BUILDAH_VERSION}" \
-    https://github.com/containers/buildah . \
-    && curl -LSs 'https://github.com/containers/buildah/commit/12b205f.patch' \
-    | patch -F5 -lp1 -t
+    https://github.com/containers/buildah .
 
 RUN env \
     CFLAGS='-static -pthread' \
