@@ -79,6 +79,7 @@ jobs:
           draft: false
           omitBody: true
           artifacts: "*/buildah-*.tar.gz"
+          makeLatest: true
           prerelease: false
           allowUpdates: true
           replacesArtifacts: true
