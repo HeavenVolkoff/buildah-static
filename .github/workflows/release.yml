@@ -48,7 +48,7 @@ jobs:
           gzip buildah-${{ matrix.arch }}.tar
 
       - name: Store tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: buildah-${{ matrix.arch }}.tar.gz
           path: buildah-${{ matrix.arch }}.tar.gz
@@ -62,7 +62,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
 
       - name: Get version
         id: get_version
