@@ -89,12 +89,21 @@ jobs:
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
           echo "Install test dependencies"
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap conmon jq nftables
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            bats \
+            uidmap \
+            conmon \
+            jq \
+            nftables \
+            docker-distribution \
+            apache2-utils
+
+          sudo ln -sf /usr/bin/docker-distribution /usr/bin/registry
 
           ARCH="${{ matrix.arch }}"
 
           # Create all required helper and config target directories
-          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/lib/podman /usr/local/libexec/podman /etc/containers
+          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/lib/podman /usr/
 
           echo "Fetch latest upstream crun release"
           sudo curl -fsSL "$(
@@ -113,19 +122,22 @@ jobs:
             gzip -dc /tmp/aardvark-dns.gz | sudo tee /usr/libexec/podman/aardvark-dns > /dev/null
             sudo chmod +x /usr/libexec/podman/aardvark-dns
           elif [ "${ARCH}" = "arm64" ]; then
-            sudo apt-get install -y --no-install-recommends protobuf-compiler libdbus-1-dev
-            cargo install --root /usr/local netavark aardvark-dns
-            sudo cp /usr/local/bin/netavark /usr/libexec/podman/netavark
-            sudo cp /usr/local/bin/aardvark-dns /usr/libexec/podman/aardvark-dns
+            sudo apt-get install -y --no-install-recommends protobuf-compiler libdbus-1-dev pkg-config
+            cargo install --root /tmp/cargo-helpers netavark aardvark-dns
+            sudo cp /tmp/cargo-helpers/bin/netavark /usr/libexec/podman/netavark
+            sudo cp /tmp/cargo-helpers/bin/aardvark-dns /usr/libexec/podman/aardvark-dns
+            sudo chmod +x /usr/libexec/podman/netavark /usr/libexec/podman/aardvark-dns
           fi
 
           echo "Link helpers across search paths"
           sudo ln -sf /usr/libexec/podman/netavark /usr/lib/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/local/lib/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/local/libexec/podman/netavark
+          sudo ln -sf /usr/libexec/podman/netavark /usr/local/bin/netavark
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-dns
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/lib/podman/aardvark-dns
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/libexec/podman/aardvark-dns
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/bin/aardvark-dns
 
           echo "Create base container configuration files"
           echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
@@ -149,9 +161,14 @@ jobs:
           cd /tmp/buildah-src
           mkdir -p bin
           export BUILDTAGS="containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper"
-          CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/copy ./tests/copy
-          CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/imgtype ./tests/imgtype
-          CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/dumpspec ./tests/dumpspec
+          
+          # Automatically compile all test helper utilities (copy, imgtype, dumpspec, passwd, etc.)
+          for dir in ./tests/*; do
+            if [ -d "$dir" ] && ls "$dir"/*.go >/dev/null 2>&1; then
+              tool=$(basename "$dir")
+              CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o "bin/$tool" "$dir"
+            fi
+          done
 
           echo "Execute BATS test suite"
           cd /tmp/buildah-src/tests
@@ -159,11 +176,7 @@ jobs:
             "PATH=${PATH}" \
             "STORAGE_DRIVER=overlay" \
             "BUILDAH_BINARY=/usr/local/bin/buildah" \
-            bats -T basic.bats \
-            from.bats \
-            config.bats \
-            commit.bats \
-            bud.bats
+            bats -T *.bats
 
       - name: Store artifact
         if: steps.check.outputs.run == 'true'
