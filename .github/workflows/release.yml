@@ -94,10 +94,15 @@ jobs:
           echo "Fetch and extract matching podman-static release"
           ARCH="${{ matrix.arch }}"
           curl -fsSL "https://github.com/mgoltzsche/podman-static/releases/latest/download/podman-linux-${ARCH}.tar.gz" -o podman-static.tar.gz
-          sudo tar -xzf podman-static.tar.gz -C /usr/local --strip-components=1
+          sudo tar -xzf podman-static.tar.gz -C / --strip-components=1
           # Replace outdated system crun with the modern static binary
           # Needed due to buildah search order resolution
+          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/libexec/podman /usr/local/lib/podman
           sudo ln -sf /usr/local/bin/crun /usr/bin/crun
+          sudo ln -sf /usr/local/lib/podman/netavark /usr/libexec/podman/netavark
+          sudo ln -sf /usr/local/lib/podman/netavark /usr/lib/podman/netavark
+          sudo ln -sf /usr/local/lib/podman/aardvark-dns /usr/libexec/podman/aardvark-dns
+          sudo ln -sf /usr/local/lib/podman/aardvark-dns /usr/lib/podman/aardvark-dns
 
           echo "Merge our built static bundle directly into system root"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
