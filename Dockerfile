@@ -18,7 +18,7 @@ RUN rm -f /etc/apt/apt.conf.d/docker-clean
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
 RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
-    apt-get update && apt-get upgrade && apt-get install -y \
+    apt-get update && apt-get install -y --no-install-recommends \
     git \
     gcc \
     make \
