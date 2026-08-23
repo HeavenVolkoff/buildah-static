@@ -73,7 +73,7 @@ jobs:
             echo "Binary is not statically linked!" && exit 1
           fi
 
-      - name: Install podman-static & run buildah tests
+      - name: Install upstream container runtime stack & run buildah tests
         if: steps.check.outputs.run == 'true'
         run: |
           echo "Configure system to run buildah tests"
@@ -88,32 +88,53 @@ jobs:
           echo "${USER}:100000:65536" | sudo tee -a /etc/subuid > /dev/null
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
-          echo "Install test dependencies"
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            bats \
+            uidmap \
+            conmon \
+            jq
 
-          echo "Fetch and extract matching podman-static release"
           ARCH="${{ matrix.arch }}"
-          curl -fsSL "https://github.com/mgoltzsche/podman-static/releases/latest/download/podman-linux-${ARCH}.tar.gz" -o podman-static.tar.gz
-          sudo tar -xzf podman-static.tar.gz -C / --strip-components=1
-          # Replace outdated system crun with the modern static binary
-          # Needed due to buildah search order resolution
-          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/libexec/podman /usr/local/lib/podman
+          if [ "${ARCH}" = "amd64" ]; then
+            RUST_ARCH="x86_64"
+          elif [ "${ARCH}" = "arm64" ]; then
+            RUST_ARCH="aarch64"
+          fi
+
+          echo "Fetch latest upstream crun release"
+          CRUN_URL=$(curl -s https://api.github.com/repos/containers/crun/releases/latest | jq -r ".assets[] | select(.name | test(\"linux-${ARCH}$\")) | .browser_download_url" | head -n 1)
+          sudo curl -fsSL "$CRUN_URL" -o /usr/local/bin/crun
+          sudo chmod +x /usr/local/bin/crun
           sudo ln -sf /usr/local/bin/crun /usr/bin/crun
-          sudo ln -sf /usr/local/lib/podman/netavark /usr/libexec/podman/netavark
-          sudo ln -sf /usr/local/lib/podman/netavark /usr/lib/podman/netavark
-          sudo ln -sf /usr/local/lib/podman/aardvark-dns /usr/libexec/podman/aardvark-dns
-          sudo ln -sf /usr/local/lib/podman/aardvark-dns /usr/lib/podman/aardvark-dns
+
+          echo "Fetch latest upstream Netavark and Aardvark-dns"
+          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/libexec/podman /usr/local/lib/podman
+          curl -fsSL "https://github.com/containers/netavark/releases/latest/download/netavark-${RUST_ARCH}-unknown-linux-gnu.tar.gz" -o netavark.tar.gz
+          curl -fsSL "https://github.com/containers/aardvark-dns/releases/latest/download/aardvark-dns-${RUST_ARCH}-unknown-linux-gnu.tar.gz" -o aardvark-dns.tar.gz
+          sudo tar -xzf netavark.tar.gz -C /usr/libexec/podman/
+          sudo tar -xzf aardvark-dns.tar.gz -C /usr/libexec/podman/
+
+          echo "Link helpers across all search paths"
+          sudo ln -sf /usr/libexec/podman/netavark /usr/lib/podman/netavark
+          sudo ln -sf /usr/libexec/podman/netavark /usr/local/lib/podman/netavark
+          sudo ln -sf /usr/libexec/podman/netavark /usr/local/libexec/podman/netavark
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-dns
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/lib/podman/aardvark-dns
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/libexec/podman/aardvark-dns
+
+          echo "Create base container configuration files"
+          sudo mkdir -p /etc/containers
+          echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
+          echo 'unqualified-search-registries = ["docker.io", "quay.io"]' | sudo tee /etc/containers/registries.conf > /dev/null
 
           echo "Merge our built static bundle directly into system root"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
-          echo "Verify runtime environment and binary placement"
-          which buildah
+           echo "Verify runtime environment and binary placement"
           /usr/local/bin/buildah --version
           /usr/local/bin/crun --version
-          /usr/bin/crun --version
-          [ "$(/usr/bin/crun --version)" == "$(/usr/local/bin/crun --version)" ]
-          which netavark || /usr/local/lib/podman/netavark --version
+          /usr/local/lib/podman/netavark --version
+          /usr/libexec/podman/aardvark-dns --version
 
           echo "Fetch test source and compile helper fixtures in pure Go"
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
