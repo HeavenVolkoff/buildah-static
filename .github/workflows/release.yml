@@ -169,9 +169,10 @@ jobs:
           cd /tmp/buildah-src/tests
           sudo -E env \
             "PATH=${PATH}" \
+            "NETAVARK_FW=nftables" \
             "STORAGE_DRIVER=overlay" \
             "BUILDAH_BINARY=/usr/local/bin/buildah" \
-            bats -T *.bats
+            bats -j $(nproc) -T *.bats
 
       - name: Store artifact
         if: steps.check.outputs.run == 'true'
