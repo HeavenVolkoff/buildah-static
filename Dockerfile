@@ -1,11 +1,11 @@
-#syntax=docker/dockerfile:1.20.0
+#syntax=docker/dockerfile:1
 
 # renovate: datasource=github-releases depName=containers/buildah
-ARG BUILDAH_VERSION=1.42.1
+ARG BUILDAH_VERSION=1.45.0
 
 #--
 
-FROM debian:sid AS build-base
+FROM debian:stable AS build-base
 
 SHELL ["bash", "-euxo", "pipefail", "-c"]
 
@@ -19,25 +19,27 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 
 RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
     apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    gcc \
-    make \
     bats \
+    btrfs-progs \
+    ca-certificates \
     curl \
+    gcc \
+    git \
     golang-go \
     go-md2man \
-    pkg-config \
-    btrfs-progs \
-    libsubid-dev \
+    libapparmor-dev \
+    libassuan-dev \
+    libbtrfs-dev \
+    libdevmapper-dev \
+    libglib2.0-dev \
+    libgpg-error-dev \
     libgpgme-dev \
     libostree-dev \
     libseccomp-dev \
-    libglib2.0-dev \
     libselinux1-dev \
-    libapparmor-dev \
-    ca-certificates \
-    libdevmapper-dev \
-    libgpg-error-dev
+    libsubid-dev \
+    make \
+    pkgconf
 
 WORKDIR /srv/buildah
 
