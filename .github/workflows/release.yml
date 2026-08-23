@@ -73,7 +73,7 @@ jobs:
             echo "Binary is not statically linked!" && exit 1
           fi
 
-      - name: Install podman-static ecosystem & run BATS tests
+      - name: Install podman-static & run buildah tests
         if: steps.check.outputs.run == 'true'
         run: |
           echo "Configure system to run buildah tests"
@@ -105,7 +105,8 @@ jobs:
           echo "Verify runtime environment and binary placement"
           which buildah
           /usr/local/bin/buildah --version
-          [ "$(/usr/bin/crun --version)" == "$(/usr/local/crun --version)" ]
+          /usr/local/bin/crun --version
+          [ "$(/usr/bin/crun --version)" == "$(/usr/local/bin/crun --version)" ]
           which netavark
           /usr/local/lib/podman/netavark --version
 
