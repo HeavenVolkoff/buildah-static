@@ -88,42 +88,28 @@ jobs:
           echo "${USER}:100000:65536" | sudo tee -a /etc/subuid > /dev/null
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            bats \
-            uidmap \
-            conmon \
-            jq
+          echo "Install test dependencies"
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap conmon
 
           ARCH="${{ matrix.arch }}"
-          if [ "${ARCH}" = "amd64" ]; then
-            RUST_ARCH="x86_64"
-          elif [ "${ARCH}" = "arm64" ]; then
-            RUST_ARCH="aarch64"
-          fi
 
           echo "Fetch latest upstream crun release"
-          CRUN_URL=$(curl -s https://api.github.com/repos/containers/crun/releases/latest | jq -r ".assets[] | select(.name | test(\"linux-${ARCH}$\")) | .browser_download_url" | head -n 1)
-          sudo curl -fsSL "$CRUN_URL" -o /usr/local/bin/crun
-          sudo chmod +x /usr/local/bin/crun
+          gh release download -R containers/crun -p "crun-*-linux-${ARCH}" -O /tmp/crun
+          sudo install -m 755 /tmp/crun /usr/local/bin/crun
           sudo ln -sf /usr/local/bin/crun /usr/bin/crun
 
           echo "Fetch latest upstream Netavark and Aardvark-dns"
-          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/libexec/podman /usr/local/lib/podman
-          curl -fsSL "https://github.com/containers/netavark/releases/latest/download/netavark-${RUST_ARCH}-unknown-linux-gnu.tar.gz" -o netavark.tar.gz
-          curl -fsSL "https://github.com/containers/aardvark-dns/releases/latest/download/aardvark-dns-${RUST_ARCH}-unknown-linux-gnu.tar.gz" -o aardvark-dns.tar.gz
-          sudo tar -xzf netavark.tar.gz -C /usr/libexec/podman/
-          sudo tar -xzf aardvark-dns.tar.gz -C /usr/libexec/podman/
-
-          echo "Link helpers across all search paths"
+          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /etc/containers
+          gh release download -R containers/netavark -p "netavark.gz" -O /tmp/netavark.gz
+          gzip -dc /tmp/netavark.gz | sudo tee /usr/libexec/podman/netavark > /dev/null
+          sudo chmod +x /usr/libexec/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/lib/podman/netavark
-          sudo ln -sf /usr/libexec/podman/netavark /usr/local/lib/podman/netavark
-          sudo ln -sf /usr/libexec/podman/netavark /usr/local/libexec/podman/netavark
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-dns
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/lib/podman/aardvark-dns
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/libexec/podman/aardvark-dns
+          gh release download -R containers/aardvark-dns -p "aardvark-dns.gz" -O /tmp/aardvark-dns.gz
+          gzip -dc /tmp/aardvark-dns.gz | sudo tee /usr/libexec/podman/aardvark-dns > /dev/null
+          sudo chmod +x /usr/libexec/podman/aardvark-dns
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-d
 
           echo "Create base container configuration files"
-          sudo mkdir -p /etc/containers
           echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
           echo 'unqualified-search-registries = ["docker.io", "quay.io"]' | sudo tee /etc/containers/registries.conf > /dev/null
 
