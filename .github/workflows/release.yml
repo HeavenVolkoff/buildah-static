@@ -106,7 +106,10 @@ jobs:
           which buildah
           /usr/local/bin/buildah --version
           /usr/local/bin/crun --version
+          (/usr/bin/crun --version
+          set -x
           [ "$(/usr/bin/crun --version)" == "$(/usr/local/bin/crun --version)" ]
+          set +x
           which netavark
           /usr/local/lib/podman/netavark --version
 
