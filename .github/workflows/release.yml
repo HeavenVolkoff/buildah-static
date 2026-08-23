@@ -60,34 +60,38 @@ jobs:
             echo "Binary is not statically linked!" && exit 1
           fi
 
-      - name: Run Buildah functional & dogfooding tests
+      - name: Run official Buildah BATS test suite
         run: |
-          BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
+          # 1. Install BATS test framework and runner dependencies
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            bats \
+            crun \
+            uidmap \
+            slirp4netns
 
-          # 1. System info and version sanity check
-          "$BIN" --version
-          sudo "$BIN" --storage-driver vfs info
+          # 2. Put the static buildah binary at the front of PATH
+          STATIC_BIN_DIR="$(pwd)/dist/buildah-linux-${{ matrix.arch }}/usr/local/bin"
+          export PATH="${STATIC_BIN_DIR}:${PATH}"
 
-          # 2. Container execution and filesystem commit test
-          CTR=$(sudo "$BIN" --storage-driver vfs from alpine:3.21)
-          sudo "$BIN" --storage-driver vfs run "$CTR" -- apk add --no-cache curl
-          sudo "$BIN" --storage-driver vfs config --cmd "curl --version" "$CTR"
-          sudo "$BIN" --storage-driver vfs commit "$CTR" test-alpine-curl:latest
-          sudo "$BIN" --storage-driver vfs rm "$CTR"
+          # Verify the test runner picks up the static binary
+          which buildah
+          buildah --version
 
-          # 3. Dogfooding: Build a container image using the compiled binary
-          cat << 'EOF' > Dogfood.Dockerfile
-          FROM alpine:3.21
-          RUN echo "Buildah built this container inside ${{ matrix.arch }} runner!" > /status.txt
-          CMD ["cat", "/status.txt"]
-          EOF
+          # 3. Clone the exact matching version of Buildah source tests
+          VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
+          git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
 
-          sudo "$BIN" --storage-driver vfs bud \
-            --platform linux/${{ matrix.arch }} \
-            -t test-dogfood:${{ matrix.arch }} \
-            -f Dogfood.Dockerfile .
+          # 4. Configure test environment to use the static binary and VFS driver
+          export STORAGE_DRIVER="vfs"
+          export BUILDAH_BINARY="${STATIC_BIN_DIR}/buildah"
 
-          sudo "$BIN" --storage-driver vfs images
+          # 5. Run core integration test suites
+          cd /tmp/buildah-src/tests
+          bats basic.bats
+          bats from.bats
+          bats config.bats
+          bats commit.bats
+          bats bud.bats
 
       - name: Store artifact
         uses: actions/upload-artifact@v4
