@@ -2,15 +2,9 @@ name: build-static
 
 on:
   push:
-    paths:
-      - "Dockerfile"
-      - ".github/workflows/release.yml"
     branches:
       - main
   pull_request:
-    paths:
-      - "Dockerfile"
-      - ".github/workflows/release.yml"
   workflow_dispatch:
 
 concurrency:
@@ -35,10 +29,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for relevant file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'Dockerfile'
+              - '.github/workflows/release.yml'
+
+      - name: Evaluate execution condition
+        id: check
+        run: |
+          RUN_BUILD="${{ github.event_name != 'pull_request' || steps.filter.outputs.src == 'true' }}"
+          echo "run=${RUN_BUILD}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go toolchain
+        if: steps.check.outputs.run == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: '/tmp/buildah-src/go.mod'
+          cache: false
+
       - name: Set up Docker Buildx
+        if: steps.check.outputs.run == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build distribution directory
+        if: steps.check.outputs.run == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -49,10 +67,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=buildah-${{ matrix.arch }}
 
       - name: Package release tarball
+        if: steps.check.outputs.run == 'true'
         run: |
           tar -C ./dist -czvf buildah-linux-${{ matrix.arch }}.tar.gz buildah-linux-${{ matrix.arch }}
 
       - name: Verify static binary & distribution layout
+        if: steps.check.outputs.run == 'true'
         run: |
           BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
           file "$BIN"
@@ -61,28 +81,32 @@ jobs:
           fi
 
       - name: Install podman-static ecosystem & run BATS tests
+        if: steps.check.outputs.run == 'true'
         run: |
-          # Enable unprivileged user namespaces and set SUID bit on shadow UID tools
+          echo "Configure system to run buildah tests"
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo sysctl -w fs.file-max=2097152
           sudo chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
+          ulimit -u 65535 2>/dev/null || ulimit -u unlimited 2>/dev/null || true
+          ulimit -n 65535 2>/dev/null || true
 
-          # Configure clean subordinate UID/GID mappings
+          echo "Configure clean subordinate UID/GID mappings"
           sudo sed -i "/^${USER}:/d" /etc/subuid /etc/subgid 2>/dev/null || true
           echo "${USER}:100000:65536" | sudo tee -a /etc/subuid > /dev/null
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
-          # Install test dependencies
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap golang-go
+          echo "Install test dependencies"
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap
 
-          # Fetch and extract matching podman-static release
+          echo "Fetch and extract matching podman-static release"
           ARCH="${{ matrix.arch }}"
           curl -fsSL "https://github.com/mgoltzsche/podman-static/releases/latest/download/podman-linux-${ARCH}.tar.gz" -o podman-static.tar.gz
           sudo tar -xzf podman-static.tar.gz -C /usr/local --strip-components=1
 
-          # Merge our built static bundle directly into system root
+          echo "Merge our built static bundle directly into system root"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
-          # Fetch test source and compile helper fixtures in pure Go
+          echo "Fetch test source and compile helper fixtures in pure Go"
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
           git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
 
@@ -93,23 +117,28 @@ jobs:
           CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/imgtype ./tests/imgtype
           CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/dumpspec ./tests/dumpspec
 
-          # Execute BATS test suite
-          export STORAGE_DRIVER="vfs"
+          echo "Execute BATS test suite"
+          export STORAGE_DRIVER="overlay"
           export BUILDAH_BINARY="/usr/local/bin/buildah"
 
           cd /tmp/buildah-src/tests
-          bats basic.bats
-          bats from.bats
-          bats config.bats
-          bats commit.bats
-          bats bud.bats
+          bats -T basic.bats
+          bats -T from.bats
+          bats -T config.bats
+          bats -T commit.bats
+          bats -T bud.bats
 
       - name: Store artifact
+        if: steps.check.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: buildah-linux-${{ matrix.arch }}.tar.gz
           path: buildah-linux-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
+
+      - name: Skip notice
+        if: steps.check.outputs.run != 'true'
+        run: echo "No build-related files modified. Build & test steps skipped."
 
   release:
     if: github.event_name != 'pull_request'
