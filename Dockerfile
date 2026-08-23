@@ -5,7 +5,7 @@ ARG BUILDAH_VERSION=1.45.0
 
 #--
 
-FROM debian:stable AS build-base
+FROM debian:trixie-20260803@sha256:34cd9e9fd437c0a095ec39cb2e73422c9f30821b0d0848ed74fd0d43bae4d958 AS build-base
 
 SHELL ["bash", "-euxo", "pipefail", "-c"]
 
