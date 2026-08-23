@@ -94,20 +94,22 @@ jobs:
           ARCH="${{ matrix.arch }}"
 
           echo "Fetch latest upstream crun release"
-          gh release download -R containers/crun -p "crun-*-linux-${ARCH}" -O /tmp/crun
-          sudo install -m 755 /tmp/crun /usr/local/bin/crun
+          sudo curl -fsSL "$(
+            curl -sL https://api.github.com/repos/containers/crun/releases/latest | jq -r ".assets[] | select(.name | test(\"^crun-.*-linux-${ARCH}$\")) | .browser_download_url"
+          )" -o /usr/local/bin/crun
+          sudo chmod +x /usr/local/bin/crun
           sudo ln -sf /usr/local/bin/crun /usr/bin/crun
 
           echo "Fetch latest upstream Netavark and Aardvark-dns"
-          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /etc/containers
-          gh release download -R containers/netavark -p "netavark.gz" -O /tmp/netavark.gz
+          curl -fsSL "https://github.com/containers/netavark/releases/latest/download/netavark.gz" -o /tmp/netavark.gz
           gzip -dc /tmp/netavark.gz | sudo tee /usr/libexec/podman/netavark > /dev/null
           sudo chmod +x /usr/libexec/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/lib/podman/netavark
-          gh release download -R containers/aardvark-dns -p "aardvark-dns.gz" -O /tmp/aardvark-dns.gz
+          sudo ln -sf /usr/libexec/podman/netavark /usr/local/lib/podman/netavark
+          curl -fsSL "https://github.com/containers/aardvark-dns/releases/latest/download/aardvark-dns.gz" -o /tmp/aardvark-dns.gz
           gzip -dc /tmp/aardvark-dns.gz | sudo tee /usr/libexec/podman/aardvark-dns > /dev/null
           sudo chmod +x /usr/libexec/podman/aardvark-dns
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-d
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-dns
 
           echo "Create base container configuration files"
           echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
@@ -116,10 +118,10 @@ jobs:
           echo "Merge our built static bundle directly into system root"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
-           echo "Verify runtime environment and binary placement"
+          echo "Verify runtime environment and binary placement"
           /usr/local/bin/buildah --version
-          /usr/local/bin/crun --version
-          /usr/local/lib/podman/netavark --version
+          /usr/bin/crun --version
+          /usr/libexec/podman/netavark --version
           /usr/libexec/podman/aardvark-dns --version
 
           echo "Fetch test source and compile helper fixtures in pure Go"
