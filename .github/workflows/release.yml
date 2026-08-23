@@ -79,7 +79,7 @@ jobs:
           echo "Configure system to run buildah tests"
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo sysctl -w fs.file-max=2097152
-          sudo chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
+          sudo chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap 2>/dev/null || true
           ulimit -u 65535 2>/dev/null || ulimit -u unlimited 2>/dev/null || true
           ulimit -n 65535 2>/dev/null || true
 
@@ -89,9 +89,12 @@ jobs:
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
           echo "Install test dependencies"
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap conmon
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap conmon jq
 
           ARCH="${{ matrix.arch }}"
+
+          # Create all required helper and config target directories
+          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/lib/podman /usr/local/libexec/podman /etc/containers
 
           echo "Fetch latest upstream crun release"
           sudo curl -fsSL "$(
@@ -106,10 +109,14 @@ jobs:
           sudo chmod +x /usr/libexec/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/lib/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/local/lib/podman/netavark
+          sudo ln -sf /usr/libexec/podman/netavark /usr/local/libexec/podman/netavark
+
           curl -fsSL "https://github.com/containers/aardvark-dns/releases/latest/download/aardvark-dns.gz" -o /tmp/aardvark-dns.gz
           gzip -dc /tmp/aardvark-dns.gz | sudo tee /usr/libexec/podman/aardvark-dns > /dev/null
           sudo chmod +x /usr/libexec/podman/aardvark-dns
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-dns
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/lib/podman/aardvark-dns
+          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/libexec/podman/aardvark-dns
 
           echo "Create base container configuration files"
           echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
