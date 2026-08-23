@@ -60,45 +60,39 @@ jobs:
             echo "Binary is not statically linked!" && exit 1
           fi
 
-      - name: Install latest Netavark
+      - name: Install podman-static ecosystem & run BATS tests
         run: |
-          sudo mkdir -p /usr/local/libexec/podman /usr/local/lib/podman
-          # Fetch matching release of netavark for the target architecture
-          ARCH="${{ matrix.arch }}"
-          curl -fsSL "https://github.com/containers/netavark/releases/latest/download/netavark.gz" -o netavark.gz || \
-          curl -fsSL "https://github.com/containers/netavark/releases/download/v1.14.0/netavark-linux-${ARCH}.gz" -o netavark.gz
-          gzip -d netavark.gz
-          chmod +x netavark
-          sudo mv netavark /usr/local/libexec/podman/netavark
-          sudo ln -sf /usr/local/libexec/podman/netavark /usr/libexec/podman/netavark
-          sudo ln -sf /usr/local/libexec/podman/netavark /usr/lib/podman/netavark
-
-      - name: Run official Buildah BATS test suite
-        run: |
-          # 1. Disable Ubuntu 24.04 AppArmor unprivileged userns restriction
+          # Disable Ubuntu 24.04 AppArmor unprivileged user namespace restriction
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-          # 2. Configure subordinate UID/GID ranges for the runner user
+          # Configure subordinate UID/GID mappings
           sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER" || true
           echo "$USER:100000:65536" | sudo tee -a /etc/subuid /etc/subgid > /dev/null
 
-          # 3. Install test prerequisites
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            bats \
-            crun \
-            uidmap
+          # Install BATS runner and uidmap tools
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap
 
-          # 4. Expose static binary to PATH and set test environment
-          STATIC_BIN_DIR="$(pwd)/dist/buildah-linux-${{ matrix.arch }}/usr/local/bin"
-          export PATH="${STATIC_BIN_DIR}:${PATH}"
-          export BUILDAH_BINARY="${STATIC_BIN_DIR}/buildah"
-          export STORAGE_DRIVER="vfs"
+          # Fetch and extract matching podman-static release
+          ARCH="${{ matrix.arch }}"
+          curl -fsSL "https://github.com/mgoltzsche/podman-static/releases/latest/download/podman-linux-${ARCH}.tar.gz" -o podman-static.tar.gz
+          sudo tar -xzf podman-static.tar.gz -C /usr/local --strip-components=1
 
-          # 5. Clone matching release source for test files
+          # Overwrite the Buildah binary with our newly built static binary
+          sudo rsync -aP $(pwd)/dist/buildah-linux-${ARCH}/usr/local /usr/local 
+
+          # Verify runtime environment
+          which buildah
+          buildah --version
+          which crun
+          which netavark || /usr/local/lib/podman/netavark --version
+
+          # Fetch test source and execute BATS suite
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
           git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
 
-          # 6. Execute core test suites
+          export STORAGE_DRIVER="vfs"
+          export BUILDAH_BINARY="/usr/local/bin/buildah"
+
           cd /tmp/buildah-src/tests
           bats basic.bats
           bats from.bats
