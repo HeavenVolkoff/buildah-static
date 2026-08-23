@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:base",
+    "config:recommended",
 
     ":label(type/renovate)",
 
@@ -33,16 +33,16 @@
   "pin": { "labels": ["bump/pin"] },
   "digest": { "labels": ["bump/digest"] },
 
-  "regexManagers": [
+  "customManagers": [
     {
-      "fileMatch": ["^Dockerfile$"],
-      "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?\\n(ENV|ARG) .*?_VERSION=(?<currentValue>.*)\\s"
-      ],
+      "customType": "regex",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": ["#\\s*renovate:\\s*datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?\\n(ENV|ARG) .*?_VERSION=(?<currentValue>.*)\\s"],
       "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
     },
     {
-      "fileMatch": ["(^|/|\\.)Dockerfile[^/]*$"],
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/|\\.)Dockerfile[^/]*$/"],
       "matchStrings": ["#syntax=(?<depName>.*?):(?<currentValue>.*?)\\n"],
       "datasourceTemplate": "docker"
     }
@@ -50,7 +50,9 @@
 
   "packageRules": [
     {
-      "packageNames": ["containers/buildah"],
+      "matchPackageNames": [
+        "containers/buildah"
+      ],
       "extractVersion": "^v(?<version>.+)$"
     }
   ]
