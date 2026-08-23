@@ -158,11 +158,10 @@ jobs:
           mkdir -p bin
           export BUILDTAGS="containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper"
 
-          # Compile all test fixtures (copy, imgtype, dumpspec, passwd, etc.)
-          for dir in ./tests/*; do
-            if [ -d "$dir" ] && ls "$dir"/*.go >/dev/null 2>&1; then
-              tool=$(basename "$dir")
-              CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o "bin/$tool" "$dir"
+          echo "Compile required test fixture binaries"
+          for tool in copy dumpspec imgtype passwd; do
+            if [ -d "./tests/$tool" ]; then
+              CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o "bin/$tool" "./tests/$tool"
             fi
           done
 
