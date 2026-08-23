@@ -77,12 +77,12 @@ jobs:
           curl -fsSL "https://github.com/mgoltzsche/podman-static/releases/latest/download/podman-linux-${ARCH}.tar.gz" -o podman-static.tar.gz
           sudo tar -xzf podman-static.tar.gz -C /usr/local --strip-components=1
 
-          # Overwrite the Buildah binary with our newly built static binary
-          sudo rsync -aP $(pwd)/dist/buildah-linux-${ARCH}/usr/local /usr/local 
+          # Merge our built static bundle directly into the system root
+          sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
-          # Verify runtime environment
+          # Verify runtime environment and binary placement
           which buildah
-          buildah --version
+          /usr/local/bin/buildah --version
           which crun
           which netavark || /usr/local/lib/podman/netavark --version
 
