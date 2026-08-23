@@ -2,24 +2,14 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-
+    "customManagers:dockerfileVersions",
     ":label(type/renovate)",
-
-    ":docker",
-    "docker:enableMajor",
-    "docker:pinDigests",
-
     ":disableRateLimiting",
-    ":ignoreUnstable",
-    ":pinVersions",
-    ":separateMajorReleases",
+    ":automergeAll",
     ":automergePr",
     ":automergeRequireAllStatusChecks",
-    ":automergeAll",
-    ":semanticCommits",
-
-    ":enableVulnerabilityAlerts",
-    ":enableVulnerabilityAlertsWithLabel(security)"
+    ":enableVulnerabilityAlertsWithLabel(security)",
+    "docker:pinDigests"
   ],
 
   "rebaseWhen": "conflicted",
@@ -36,24 +26,27 @@
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^Dockerfile$/"],
-      "matchStrings": ["#\\s*renovate:\\s*datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?\\n(ENV|ARG) .*?_VERSION=(?<currentValue>.*)\\s"],
-      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/(^|/|\\.)Dockerfile[^/]*$/"],
-      "matchStrings": ["#syntax=(?<depName>.*?):(?<currentValue>.*?)\\n"],
+      "description": "Update Dockerfile BuildKit #syntax directives",
+      "managerFilePatterns": ["**/[Dd]ockerfile*", "**/[Cc]ontainerfile*"],
+      "matchStrings": [
+        "#\\s*syntax=(?<depName>[^:\\s]+):(?<currentValue>[^\\s]+)"
+      ],
       "datasourceTemplate": "docker"
     }
   ],
 
   "packageRules": [
     {
-      "matchPackageNames": [
-        "containers/buildah"
-      ],
+      "description": "Strip leading 'v' from upstream Buildah GitHub release tags",
+      "matchDatasources": ["github-releases"],
+      "matchPackageNames": ["containers/buildah"],
       "extractVersion": "^v(?<version>.+)$"
+    },
+    {
+      "description": "Ensure Docker versioning schema for official base image tags",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang", "alpine", "docker.io/library/golang", "docker.io/library/alpine"],
+      "versioning": "docker"
     }
   ]
 }
