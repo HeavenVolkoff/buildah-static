@@ -94,16 +94,12 @@ jobs:
             uidmap \
             conmon \
             jq \
-            nftables \
-            docker-distribution \
-            apache2-utils
-
-          sudo ln -sf /usr/bin/docker-distribution /usr/bin/registry
+            nftables
 
           ARCH="${{ matrix.arch }}"
 
           # Create all required helper and config target directories
-          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/lib/podman /usr/
+          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/lib/podman /usr/local/libexec/podman /etc/containers
 
           echo "Fetch latest upstream crun release"
           sudo curl -fsSL "$(
@@ -161,8 +157,8 @@ jobs:
           cd /tmp/buildah-src
           mkdir -p bin
           export BUILDTAGS="containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper"
-          
-          # Automatically compile all test helper utilities (copy, imgtype, dumpspec, passwd, etc.)
+
+          # Compile all test fixtures (copy, imgtype, dumpspec, passwd, etc.)
           for dir in ./tests/*; do
             if [ -d "$dir" ] && ls "$dir"/*.go >/dev/null 2>&1; then
               tool=$(basename "$dir")
@@ -170,7 +166,7 @@ jobs:
             fi
           done
 
-          echo "Execute BATS test suite"
+          echo "Execute full BATS test suite"
           cd /tmp/buildah-src/tests
           sudo -E env \
             "PATH=${PATH}" \
