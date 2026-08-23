@@ -95,6 +95,16 @@ jobs:
           ARCH="${{ matrix.arch }}"
           curl -fsSL "https://github.com/mgoltzsche/podman-static/releases/latest/download/podman-linux-${ARCH}.tar.gz" -o podman-static.tar.gz
           sudo tar -xzf podman-static.tar.gz -C /usr/local --strip-components=1
+          # Replace outdated system crun with the modern static binary
+          # Needed due to buildah search order resolution
+          sudo ln -sf /usr/local/bin/crun /usr/bin/crun
+
+          echo "Verify runtime environment and binary placement"
+          which buildah
+          /usr/local/bin/buildah --version
+          [ "$(/usr/bin/crun --version)" == "$(/usr/local/crun --version)" ]
+          which netavark
+          /usr/local/lib/podman/netavark --version
 
           echo "Merge our built static bundle directly into system root"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
