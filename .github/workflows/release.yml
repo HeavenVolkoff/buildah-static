@@ -107,11 +107,8 @@ jobs:
           /usr/local/bin/buildah --version
           /usr/local/bin/crun --version
           /usr/bin/crun --version
-          set -x
           [ "$(/usr/bin/crun --version)" == "$(/usr/local/bin/crun --version)" ]
-          set +x
-          which netavark
-          /usr/local/lib/podman/netavark --version
+          which netavark || /usr/local/lib/podman/netavark --version
 
           echo "Fetch test source and compile helper fixtures in pure Go"
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
