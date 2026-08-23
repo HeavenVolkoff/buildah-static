@@ -111,15 +111,16 @@ jobs:
           CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/dumpspec ./tests/dumpspec
 
           echo "Execute BATS test suite"
-          export STORAGE_DRIVER="overlay"
-          export BUILDAH_BINARY="/usr/local/bin/buildah"
-
           cd /tmp/buildah-src/tests
-          bats -T basic.bats
-          bats -T from.bats
-          bats -T config.bats
-          bats -T commit.bats
-          bats -T bud.bats
+          sudo -E env \
+            "PATH=${PATH}" \
+            "STORAGE_DRIVER=overlay" \
+            "BUILDAH_BINARY=/usr/local/bin/buildah" \
+            bats -T basic.bats \
+            from.bats \
+            config.bats \
+            commit.bats \
+            bud.bats
 
       - name: Store artifact
         if: steps.check.outputs.run == 'true'
