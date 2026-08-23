@@ -62,34 +62,41 @@ jobs:
 
       - name: Install podman-static ecosystem & run BATS tests
         run: |
-          # Disable Ubuntu 24.04 AppArmor unprivileged user namespace restriction
+          # Enable unprivileged user namespaces and set SUID bit on shadow UID tools
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
 
-          # Configure subordinate UID/GID mappings
-          sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$USER" || true
-          echo "$USER:100000:65536" | sudo tee -a /etc/subuid /etc/subgid > /dev/null
+          # Configure clean subordinate UID/GID mappings
+          sudo sed -i "/^${USER}:/d" /etc/subuid /etc/subgid 2>/dev/null || true
+          echo "${USER}:100000:65536" | sudo tee -a /etc/subuid > /dev/null
+          echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
-          # Install BATS runner and uidmap tools
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap
+          # Install test dependencies (BATS and host Go compiler for test fixtures)
+          suapt-get update && sudo apt-get install -y --no-install-recommends bats uidmap golang-go
 
           # Fetch and extract matching podman-static release
           ARCH="${{ matrix.arch }}"
           curl -fsSL "https://github.com/mgoltzsche/podman-static/releases/latest/download/podman-linux-${ARCH}.tar.gz" -o podman-static.tar.gz
           sudo tar -xzf podman-static.tar.gz -C /usr/local --strip-components=1
 
-          # Merge our built static bundle directly into the system root
+          # Merge our built static bundle directly into system root
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
           # Verify runtime environment and binary placement
           which buildah
           /usr/local/bin/buildah --version
           which crun
-          which netavark || /usr/local/lib/podman/netavark --version
 
-          # Fetch test source and execute BATS suite
+          # Fetch test source and build test helper fixtures (copy, imgtype, dumpspec)
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
           git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
 
+          mkdir -p /tmp/buildah-src/bin
+          go build -o /tmp/buildah-src/bin/copy /tmp/buildah-src/tests/copy
+          go build -o /tmp/buildah-src/bin/imgtype /tmp/buildah-src/tests/imgtype
+          go build -o /tmp/buildah-src/bin/dumpspec /tmp/buildah-src/tests/dumpspec
+
+          # Execute BATS test suite
           export STORAGE_DRIVER="vfs"
           export BUILDAH_BINARY="/usr/local/bin/buildah"
 
