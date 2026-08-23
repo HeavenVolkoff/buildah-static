@@ -72,7 +72,7 @@ jobs:
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
           # Install test dependencies (BATS and host Go compiler for test fixtures)
-          suapt-get update && sudo apt-get install -y --no-install-recommends bats uidmap golang-go
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap golang-go
 
           # Fetch and extract matching podman-static release
           ARCH="${{ matrix.arch }}"
@@ -86,15 +86,17 @@ jobs:
           which buildah
           /usr/local/bin/buildah --version
           which crun
+          which netavark || /usr/local/lib/podman/netavark --version
 
-          # Fetch test source and build test helper fixtures (copy, imgtype, dumpspec)
+          # Fetch test source and build test helper fixtures
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
           git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
 
-          mkdir -p /tmp/buildah-src/bin
-          go build -o /tmp/buildah-src/bin/copy /tmp/buildah-src/tests/copy
-          go build -o /tmp/buildah-src/bin/imgtype /tmp/buildah-src/tests/imgtype
-          go build -o /tmp/buildah-src/bin/dumpspec /tmp/buildah-src/tests/dumpspec
+          cd /tmp/buildah-src
+          mkdir -p bin
+          go build -o bin/copy ./tests/copy
+          go build -o bin/imgtype ./tests/imgtype
+          go build -o bin/dumpspec ./tests/dumpspec
 
           # Execute BATS test suite
           export STORAGE_DRIVER="vfs"
