@@ -29,7 +29,7 @@ FROM --platform=$BUILDPLATFORM docker.io/library/golang:${GOLANG_VERSION}-alpine
 # Inject tonistiigi/xx cross-compilation tools
 COPY --from=xx / /
 
-# Install host tools required for Clang and linking
+# Install host build toolchain
 RUN apk add --no-cache \
     bash \
     make \
@@ -76,10 +76,31 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
            CGO_LDFLAGS="-fuse-ld=lld -flto=thin" \
            BUILDTAGS="static netgo osusergo exclude_graphdriver_devicemapper seccomp containers_image_openpgp" \
            EXTRA_LDFLAGS='-s -w -linkmode external -extldflags "-static -fuse-ld=lld -flto=thin"' && \
-    make bin/buildah && \
-    xx-verify --static bin/buildah
+    make bin/buildah
 
-#-- Final Stage
+# Verify static binary integrity
+RUN xx-verify --static bin/buildah
+
+# Assemble clean, minimal distribution layout
+RUN DEST="/out/buildah-linux-${TARGETARCH}" && \
+    mkdir -p \
+        "${DEST}/usr/local/bin" \
+        "${DEST}/usr/local/share/bash-completion/completions" \
+        "${DEST}/usr/local/share/zsh/site-functions" \
+        "${DEST}/usr/local/share/fish/vendor_completions.d" \
+        "${DEST}/etc/containers" && \
+    cp bin/buildah "${DEST}/usr/local/bin/buildah" && \
+    chmod 755 "${DEST}/usr/local/bin/buildah" && \
+    [ -f contrib/completions/bash/buildah ] && cp contrib/completions/bash/buildah "${DEST}/usr/local/share/bash-completion/completions/buildah" || true; \
+    [ -f contrib/completions/zsh/_buildah ] && cp contrib/completions/zsh/_buildah "${DEST}/usr/local/share/zsh/site-functions/_buildah" || true; \
+    [ -f contrib/completions/fish/buildah.fish ] && cp contrib/completions/fish/buildah.fish "${DEST}/usr/local/share/fish/vendor_completions.d/buildah.fish" || true; \
+    [ -f tests/policy.json ] && cp tests/policy.json "${DEST}/etc/containers/policy.json" || true; \
+    [ -f tests/registries.conf ] && cp tests/registries.conf "${DEST}/etc/containers/registries.conf" || true; \
+    [ -f tests/storage.conf ] && cp tests/storage.conf "${DEST}/etc/containers/storage.conf" || true; \
+    [ -f LICENSE ] && cp LICENSE "${DEST}/LICENSE" || true; \
+    [ -f README.md ] && cp README.md "${DEST}/README.md" || true
+
+#-- Final Stage (Exports clean buildah-linux-<arch>/ bundle)
 FROM scratch AS local
 
-COPY --from=builder /srv/buildah/bin/buildah /buildah
+COPY --from=builder /out /

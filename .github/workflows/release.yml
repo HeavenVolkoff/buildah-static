@@ -13,73 +13,130 @@ on:
       - ".github/workflows/release.yml"
   workflow_dispatch:
 
-# Cancel previous runs of the same workflow on the same branch.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        arch:
-          - amd64
-          - arm64
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          docker build . \
-              --platform linux/${{ matrix.arch }} \
-              --target local \
-              --output type=tar,dest=buildah-${{ matrix.arch }}.tar; \
-          gzip buildah-${{ matrix.arch }}.tar
-
-      - name: Store tarball
-        uses: actions/upload-artifact@v7
+      - name: Build distribution directory
+        uses: docker/build-push-action@v6
         with:
-          name: buildah-${{ matrix.arch }}.tar.gz
-          path: buildah-${{ matrix.arch }}.tar.gz
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          target: local
+          outputs: type=local,dest=./dist
+          cache-from: type=gha,scope=buildah-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=buildah-${{ matrix.arch }}
+
+      - name: Package release tarball
+        run: |
+          tar -C ./dist -czvf buildah-linux-${{ matrix.arch }}.tar.gz buildah-linux-${{ matrix.arch }}
+
+      - name: Verify static binary & distribution layout
+        run: |
+          BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
+          file "$BIN"
+          if ldd "$BIN" 2>&1 | grep -qv "not a dynamic executable\|statically linked"; then
+            echo "Binary is not statically linked!" && exit 1
+          fi
+
+      - name: Run Buildah functional & dogfooding tests
+        run: |
+          BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
+
+          # 1. System info and version sanity check
+          "$BIN" --version
+          sudo "$BIN" --storage-driver vfs info
+
+          # 2. Container execution and filesystem commit test
+          CTR=$(sudo "$BIN" --storage-driver vfs from alpine:3.21)
+          sudo "$BIN" --storage-driver vfs run "$CTR" -- apk add --no-cache curl
+          sudo "$BIN" --storage-driver vfs config --cmd "curl --version" "$CTR"
+          sudo "$BIN" --storage-driver vfs commit "$CTR" test-alpine-curl:latest
+          sudo "$BIN" --storage-driver vfs rm "$CTR"
+
+          # 3. Dogfooding: Build a container image using the compiled binary
+          cat << 'EOF' > Dogfood.Dockerfile
+          FROM alpine:3.21
+          RUN echo "Buildah built this container inside ${{ matrix.arch }} runner!" > /status.txt
+          CMD ["cat", "/status.txt"]
+          EOF
+
+          sudo "$BIN" --storage-driver vfs bud \
+            --platform linux/${{ matrix.arch }} \
+            -t test-dogfood:${{ matrix.arch }} \
+            -f Dogfood.Dockerfile .
+
+          sudo "$BIN" --storage-driver vfs images
+
+      - name: Store artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildah-linux-${{ matrix.arch }}.tar.gz
+          path: buildah-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
 
   release:
-    if: always() && github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'
     needs:
       - build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v8
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
 
-      - name: Get version
+      - name: Extract Buildah version
         id: get_version
         run: |
-          version="$(cat Dockerfile | grep "ARG BUILDAH_VERSION=" | sed -E 's/ARG BUILDAH_VERSION=//')"
-          echo "::set-output name=version::${version}"
+          VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
+          if [ -z "$VERSION" ]; then
+            VERSION=$(grep -Eo "ARG BUILDAH_VERSION='[^']+'" Dockerfile | cut -d"'" -f2)
+          fi
+          if [ -z "$VERSION" ]; then
+            VERSION=$(grep -Eo 'ARG BUILDAH_VERSION=[^ ]+' Dockerfile | cut -d'=' -f2 | tr -d '"'"'")
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Create release
-        id: create_release
+      - name: Generate SHA256 checksums
+        run: |
+          cd release-artifacts
+          sha256sum buildah-linux-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          name: "buildah ${{ steps.get_version.outputs.version }}"
-          tag: v${{ steps.get_version.outputs.version }}
+          name: "Buildah v${{ steps.get_version.outputs.version }}"
+          tag: "v${{ steps.get_version.outputs.version }}"
           draft: false
-          omitBody: true
-          artifacts: "*/buildah-*.tar.gz"
-          makeLatest: true
           prerelease: false
+          makeLatest: true
           allowUpdates: true
           replacesArtifacts: true
+          artifacts: "release-artifacts/buildah-linux-*.tar.gz,release-artifacts/SHA256SUMS"
