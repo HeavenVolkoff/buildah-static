@@ -89,7 +89,7 @@ jobs:
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
           echo "Install test dependencies"
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap conmon jq
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap conmon jq nftables
 
           ARCH="${{ matrix.arch }}"
 
@@ -103,17 +103,26 @@ jobs:
           sudo chmod +x /usr/local/bin/crun
           sudo ln -sf /usr/local/bin/crun /usr/bin/crun
 
-          echo "Fetch latest upstream Netavark and Aardvark-dns"
-          curl -fsSL "https://github.com/containers/netavark/releases/latest/download/netavark.gz" -o /tmp/netavark.gz
-          gzip -dc /tmp/netavark.gz | sudo tee /usr/libexec/podman/netavark > /dev/null
-          sudo chmod +x /usr/libexec/podman/netavark
+          echo "Install Netavark and Aardvark-dns"
+          if [ "${ARCH}" = "amd64" ]; then
+            curl -fsSL "https://github.com/containers/netavark/releases/latest/download/netavark.gz" -o /tmp/netavark.gz
+            gzip -dc /tmp/netavark.gz | sudo tee /usr/libexec/podman/netavark > /dev/null
+            sudo chmod +x /usr/libexec/podman/netavark
+
+            curl -fsSL "https://github.com/containers/aardvark-dns/releases/latest/download/aardvark-dns.gz" -o /tmp/aardvark-dns.gz
+            gzip -dc /tmp/aardvark-dns.gz | sudo tee /usr/libexec/podman/aardvark-dns > /dev/null
+            sudo chmod +x /usr/libexec/podman/aardvark-dns
+          elif [ "${ARCH}" = "arm64" ]; then
+            sudo apt-get install -y --no-install-recommends protobuf-compiler libdbus-1-dev
+            cargo install --root /usr/local netavark aardvark-dns
+            sudo cp /usr/local/bin/netavark /usr/libexec/podman/netavark
+            sudo cp /usr/local/bin/aardvark-dns /usr/libexec/podman/aardvark-dns
+          fi
+
+          echo "Link helpers across search paths"
           sudo ln -sf /usr/libexec/podman/netavark /usr/lib/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/local/lib/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/local/libexec/podman/netavark
-
-          curl -fsSL "https://github.com/containers/aardvark-dns/releases/latest/download/aardvark-dns.gz" -o /tmp/aardvark-dns.gz
-          gzip -dc /tmp/aardvark-dns.gz | sudo tee /usr/libexec/podman/aardvark-dns > /dev/null
-          sudo chmod +x /usr/libexec/podman/aardvark-dns
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-dns
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/lib/podman/aardvark-dns
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/libexec/podman/aardvark-dns
@@ -121,6 +130,8 @@ jobs:
           echo "Create base container configuration files"
           echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
           echo 'unqualified-search-registries = ["docker.io", "quay.io"]' | sudo tee /etc/containers/registries.conf > /dev/null
+          # Set nftables driver for Netavark 2.0+
+          printf '[network]\nfirewall_driver = "nftables"\n' | sudo tee /etc/containers/containers.conf > /dev/null
 
           echo "Merge our built static bundle directly into system root"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
