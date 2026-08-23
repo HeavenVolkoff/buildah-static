@@ -71,7 +71,7 @@ jobs:
           echo "${USER}:100000:65536" | sudo tee -a /etc/subuid > /dev/null
           echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
 
-          # Install test dependencies (BATS and host Go compiler for test fixtures)
+          # Install test dependencies
           sudo apt-get update && sudo apt-get install -y --no-install-recommends bats uidmap golang-go
 
           # Fetch and extract matching podman-static release
@@ -82,21 +82,16 @@ jobs:
           # Merge our built static bundle directly into system root
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
-          # Verify runtime environment and binary placement
-          which buildah
-          /usr/local/bin/buildah --version
-          which crun
-          which netavark || /usr/local/lib/podman/netavark --version
-
-          # Fetch test source and build test helper fixtures
+          # Fetch test source and compile helper fixtures in pure Go
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
           git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
 
           cd /tmp/buildah-src
           mkdir -p bin
-          go build -o bin/copy ./tests/copy
-          go build -o bin/imgtype ./tests/imgtype
-          go build -o bin/dumpspec ./tests/dumpspec
+          export BUILDTAGS="containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper"
+          CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/copy ./tests/copy
+          CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/imgtype ./tests/imgtype
+          CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o bin/dumpspec ./tests/dumpspec
 
           # Execute BATS test suite
           export STORAGE_DRIVER="vfs"
