@@ -2,24 +2,15 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-
+    "customManagers:dockerfileVersions",
+    "customManagers:githubActionsVersions",
     ":label(type/renovate)",
-
-    ":docker",
-    "docker:enableMajor",
-    "docker:pinDigests",
-
     ":disableRateLimiting",
-    ":ignoreUnstable",
-    ":pinVersions",
-    ":separateMajorReleases",
+    ":automergeAll",
     ":automergePr",
     ":automergeRequireAllStatusChecks",
-    ":automergeAll",
-    ":semanticCommits",
-
-    ":enableVulnerabilityAlerts",
-    ":enableVulnerabilityAlertsWithLabel(security)"
+    ":enableVulnerabilityAlertsWithLabel(security)",
+    "docker:pinDigests"
   ],
 
   "rebaseWhen": "conflicted",
@@ -32,28 +23,17 @@
   "patch": { "labels": ["bump/patch"] },
   "pin": { "labels": ["bump/pin"] },
   "digest": { "labels": ["bump/digest"] },
-
-  "customManagers": [
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^Dockerfile$/"],
-      "matchStrings": ["#\\s*renovate:\\s*datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?\\n(ENV|ARG) .*?_VERSION=(?<currentValue>.*)\\s"],
-      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/(^|/|\\.)Dockerfile[^/]*$/"],
-      "matchStrings": ["#syntax=(?<depName>.*?):(?<currentValue>.*?)\\n"],
-      "datasourceTemplate": "docker"
-    }
-  ],
-
   "packageRules": [
     {
+      "description": "Ensure Docker versioning schema for official base image tags",
+      "matchDataSources": ["docker"],
       "matchPackageNames": [
-        "containers/buildah"
+        "golang",
+        "alpine",
+        "docker.io/library/golang",
+        "docker.io/library/alpine"
       ],
-      "extractVersion": "^v(?<version>.+)$"
+      "versioning": "docker"
     }
   ]
 }

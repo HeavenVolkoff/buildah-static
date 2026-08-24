@@ -1,61 +1,107 @@
 #syntax=docker/dockerfile:1
 
-# renovate: datasource=github-releases depName=containers/buildah
-ARG BUILDAH_VERSION=1.45.0
+# renovate: datasource=docker depName=golang versioning=docker
+ARG GOLANG_VERSION="1.27"
+# renovate: datasource=docker depName=alpine versioning=docker
+ARG ALPINE_VERSION="3.24"
 
-#--
+# Synchronized with podman-static
+ARG BUILDAH_VERSION
 
-FROM debian:stable AS build-base
+#-- Import xx toolchain
+FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx:latest AS xx
 
-SHELL ["bash", "-euxo", "pipefail", "-c"]
+#-- Source Stage
+FROM --platform=$BUILDPLATFORM docker.io/library/alpine:${ALPINE_VERSION} AS src
 
-# Configure apt to be docker friendly
-ADD https://gist.githubusercontent.com/HeavenVolkoff/ff7b77b9087f956b8df944772e93c071/raw \
-    /etc/apt/apt.conf.d/99docker-apt-config
+RUN apk add --no-cache git
 
-RUN rm -f /etc/apt/apt.conf.d/docker-clean
+WORKDIR /src
+ARG BUILDAH_VERSION
+RUN test -n "${BUILDAH_VERSION}" \
+    && git init . \
+    && git remote add origin https://github.com/containers/buildah.git \
+    && git fetch --depth 1 origin tag "v${BUILDAH_VERSION}" \
+    && git checkout FETCH_HEAD
 
-RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+#-- Builder Stage (Alpine host + tonistiigi/xx + musl + Clang/LLVM)
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION} AS builder
 
-RUN --mount=type=cache,target=/var/cache/apt --mount=type=cache,target=/var/lib/apt \
-    apt-get update && apt-get install -y --no-install-recommends \
-    bats \
-    btrfs-progs \
+# Inject tonistiigi/xx cross-compilation tools
+COPY --from=xx / /
+
+# Install host build toolchain
+RUN apk add --no-cache \
+    bash \
+    make \
+    git \
+    clang \
+    lld \
+    llvm \
+    pkgconf \
     ca-certificates \
     curl \
     gcc \
-    git \
-    golang-go \
-    go-md2man \
-    libapparmor-dev \
-    libassuan-dev \
-    libbtrfs-dev \
-    libdevmapper-dev \
-    libglib2.0-dev \
-    libgpg-error-dev \
-    libgpgme-dev \
-    libostree-dev \
+    musl-dev
+
+ARG TARGETPLATFORM
+ARG TARGETARCH
+
+# Install target static dependencies into the xx sysroot
+RUN xx-apk add --no-cache --no-scripts \
+    musl-dev \
+    gcc \
+    libgcc-static \
+    linux-headers \
     libseccomp-dev \
-    libselinux1-dev \
-    libsubid-dev \
-    make \
-    pkgconf
+    libseccomp-static \
+    btrfs-progs-dev \
+    btrfs-progs-static \
+    shadow-dev
 
 WORKDIR /srv/buildah
+COPY --from=src /src /srv/buildah
 
-ARG BUILDAH_VERSION
-RUN test -n "${BUILDAH_VERSION}" \
-    && git clone --config advice.detachedHead=false --depth 1 --branch "v${BUILDAH_VERSION}" \
-    https://github.com/containers/buildah .
+# Cross-compile statically using xx-go wrapper and LLD
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    xx-go --wrap && \
+    ARCH_OPT="" && \
+    if [ "${TARGETARCH}" = "amd64" ]; then \
+        ARCH_OPT="-march=x86-64-v2"; \
+    fi && \
+    export CC="xx-clang" \
+           CXX="xx-clang++" \
+           CGO_ENABLED=1 \
+           CGO_CFLAGS="-O3 -flto=thin -pthread ${ARCH_OPT}" \
+           CGO_LDFLAGS="-fuse-ld=lld -flto=thin" \
+           BUILDTAGS="static netgo osusergo exclude_graphdriver_devicemapper seccomp containers_image_openpgp" \
+           EXTRA_LDFLAGS='-s -w -linkmode external -extldflags "-static -fuse-ld=lld -flto=thin"' && \
+    make bin/buildah
 
-RUN env \
-    CFLAGS='-static -pthread' \
-    LDFLAGS="-s -w -static-libgcc -static" \
-    BUILDTAGS='static netgo osusergo exclude_graphdriver_devicemapper seccomp apparmor selinux' \
-    CGO_ENABLED=1 \
-    EXTRA_LDFLAGS='-s -w -linkmode external -extldflags "-static -lgpg-error -lassuan -lm"' \
-    make buildah
+# Verify static binary integrity
+RUN xx-verify --static bin/buildah
 
+# Assemble clean, minimal distribution layout
+RUN DEST="/out/buildah-linux-${TARGETARCH}" && \
+    mkdir -p \
+        "${DEST}/usr/local/bin" \
+        "${DEST}/usr/local/share/bash-completion/completions" \
+        "${DEST}/usr/local/share/zsh/site-functions" \
+        "${DEST}/usr/local/share/fish/vendor_completions.d" \
+        "${DEST}/etc/containers" && \
+    cp bin/buildah "${DEST}/usr/local/bin/buildah" && \
+    chmod 755 "${DEST}/usr/local/bin/buildah" && \
+    [ -f contrib/completions/bash/buildah ] && cp contrib/completions/bash/buildah "${DEST}/usr/local/share/bash-completion/completions/buildah" || true; \
+    [ -f contrib/completions/zsh/_buildah ] && cp contrib/completions/zsh/_buildah "${DEST}/usr/local/share/zsh/site-functions/_buildah" || true; \
+    [ -f contrib/completions/fish/buildah.fish ] && cp contrib/completions/fish/buildah.fish "${DEST}/usr/local/share/fish/vendor_completions.d/buildah.fish" || true; \
+    [ -f tests/policy.json ] && cp tests/policy.json "${DEST}/etc/containers/policy.json" || true; \
+    [ -f tests/registries.conf ] && cp tests/registries.conf "${DEST}/etc/containers/registries.conf" || true; \
+    [ -f tests/storage.conf ] && cp tests/storage.conf "${DEST}/etc/containers/storage.conf" || true; \
+    [ -f LICENSE ] && cp LICENSE "${DEST}/LICENSE" || true; \
+    [ -f README.md ] && cp README.md "${DEST}/README.md" || true
+
+#-- Final Stage (Exports clean buildah-linux-<arch>/ bundle)
 FROM scratch AS local
 
-COPY --from=build-base "/srv/buildah/bin/buildah" /buildah
+COPY --from=builder /out /

@@ -2,84 +2,299 @@ name: build-static
 
 on:
   push:
-    paths:
-      - "Dockerfile"
-      - ".github/workflows/release.yml"
     branches:
       - main
   pull_request:
-    paths:
-      - "Dockerfile"
-      - ".github/workflows/release.yml"
   workflow_dispatch:
 
-# Cancel previous runs of the same workflow on the same branch.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
+env:
+  # renovate: datasource=github-releases depName=mgoltzsche/podman-static
+  PODMAN_STATIC_VERSION: "v5.8.4"
+
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      should_build: ${{ steps.eval.outputs.should_build }}
+      buildah_version: ${{ steps.eval.outputs.buildah_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for relevant file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'Dockerfile'
+              - '.github/workflows/release.yml'
+
+      - name: Cache podman-static archives (all architectures)
+        if: steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch'
+        id: cache-podman
+        uses: actions/cache@v4
+        with:
+          path: /tmp/podman-cache
+          key: podman-static-bundle-${{ env.PODMAN_STATIC_VERSION }}
+
+      - name: Download both podman-static architectures on cache miss
+        if: (steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch') && steps.cache-podman.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/podman-cache
+          for arch in amd64 arm64; do
+            URL="https://github.com/mgoltzsche/podman-static/releases/download/${{ env.PODMAN_STATIC_VERSION }}/podman-linux-${arch}.tar.gz"
+            curl -fsSL "$URL" -o "/tmp/podman-cache/podman-linux-${arch}.tar.gz"
+          done
+
+      - name: Extract target Buildah version & evaluate execution
+        id: eval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.filter.outputs.src != 'true' && github.event_name != 'workflow_dispatch' }}" = "true" ]; then
+            echo "No relevant files modified. Skipping build entirely."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tar -xzf /tmp/podman-cache/podman-linux-amd64.tar.gz -C /tmp
+          TARGET_BUILDAH_VER=$(sudo /tmp/podman-linux-amd64/usr/local/bin/podman info --format '{{.Host.BuildahVersion}}' | tr -d '\r\n')
+
+          if [ -z "$TARGET_BUILDAH_VER" ] || [ "$TARGET_BUILDAH_VER" = "<nil>" ]; then
+            echo "Failed to extract Buildah version from podman-static"
+            exit 1
+          fi
+
+          echo "Target Buildah version from podman-static ${{ env.PODMAN_STATIC_VERSION }}: ${TARGET_BUILDAH_VER}"
+          echo "buildah_version=${TARGET_BUILDAH_VER}" >> "$GITHUB_OUTPUT"
+
+          TAG="v${TARGET_BUILDAH_VER}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            RELEASE_EXISTS="true"
+            echo "Release ${TAG} already exists in repository."
+          else
+            RELEASE_EXISTS="false"
+            echo "Release ${TAG} does not exist yet."
+          fi
+
+          if [ "$RELEASE_EXISTS" = "true" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Buildah ${TAG} is already published. Skipping build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Proceeding with build for Buildah ${TAG}."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
-    runs-on: ubuntu-latest
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        arch:
-          - amd64
-          - arm64
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Restore podman-static archive
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/podman-cache
+          key: podman-static-bundle-${{ env.PODMAN_STATIC_VERSION }}
+          fail-on-cache-miss: true
+
+      - name: Install runtime environment & setup helper symlinks
+        run: |
+          echo "Configure system kernel and subordinate mappings"
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo sysctl -w fs.file-max=2097152
+          sudo chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap 2>/dev/null || true
+          ulimit -u 65535 2>/dev/null || ulimit -u unlimited 2>/dev/null || true
+          ulimit -n 65535 2>/dev/null || true
+
+          for which in uid gid; do
+            sudo sed -i "/^${USER}:/d" /etc/sub$which 2>/dev/null || true
+            echo "${USER}:100000:65536" | sudo tee -a /etc/sub$which > /dev/null
+          done
+
+          ARCH="${{ matrix.arch }}"
+          sudo tar -xzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" -C /
+
+          sudo mkdir -p /usr/libexec/podman /usr/local/bin
+          for helper in /usr/local/lib/podman/*; do
+            { [ -f "$helper" ] && [ -x "$helper" ]; } || continue
+            sudo ln -sf "$helper" "/usr/libexec/podman/$(basename "$helper")"
+            sudo ln -sf "$helper" "/usr/local/bin/$(basename "$helper")"
+          done
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build
-        env:
-          DOCKER_BUILDKIT: 1
-        run: |
-          docker build . \
-              --platform linux/${{ matrix.arch }} \
-              --target local \
-              --output type=tar,dest=buildah-${{ matrix.arch }}.tar; \
-          gzip buildah-${{ matrix.arch }}.tar
-
-      - name: Store tarball
-        uses: actions/upload-artifact@v7
+      - name: Build distribution directory
+        uses: docker/build-push-action@v6
         with:
-          name: buildah-${{ matrix.arch }}.tar.gz
-          path: buildah-${{ matrix.arch }}.tar.gz
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          target: local
+          outputs: type=local,dest=./dist
+          build-args: |
+            BUILDAH_VERSION=${{ needs.prepare.outputs.buildah_version }}
+          cache-from: type=gha,scope=buildah-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=buildah-${{ matrix.arch }}
+
+      - name: Package release tarball
+        run: |
+          tar -C ./dist -czvf buildah-linux-${{ matrix.arch }}.tar.gz buildah-linux-${{ matrix.arch }}
+
+      - name: Verify static binary
+        run: |
+          BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
+          file "$BIN"
+          if ldd "$BIN" 2>&1 | grep -qv "not a dynamic executable\|statically linked"; then
+            echo "Binary is not statically linked!" && exit 1
+          fi
+
+      - name: Run runtime validation & smoke tests
+        run: |
+          ARCH="${{ matrix.arch }}"
+          sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
+
+          echo "Verify runtime environment"
+          crun --version
+          netavark --version
+          aardvark-dns --version
+
+          sudo_buildah() {
+            sudo env PATH="${PATH}" CI=true GIT_TERMINAL_PROMPT=0 NETAVARK_FW=nftables STORAGE_DRIVER=overlay /usr/local/bin/buildah "$@"
+          }
+
+          echo "============================================================"
+          echo "TEST 1: Binary info, storage driver & version verification"
+          echo "============================================================"
+          sudo_buildah --version
+          sudo_buildah info
+
+          echo "============================================================"
+          echo "TEST 2: Remote registry pull & image inspect"
+          echo "============================================================"
+          sudo_buildah pull alpine:latest
+          sudo_buildah inspect --type image alpine:latest | jq -e '.OCIv1.architecture' > /dev/null
+
+          echo "============================================================"
+          echo "TEST 3: Direct container mount, filesystem mutation & commit"
+          echo "============================================================"
+          CTR=$(sudo_buildah from scratch)
+          MNT=$(sudo_buildah mount "$CTR")
+          echo "hello from static buildah" | sudo tee "$MNT/static-test.txt" > /dev/null
+          sudo_buildah unmount "$CTR"
+          sudo_buildah commit "$CTR" localhost/scratch-test:latest
+          sudo_buildah rm "$CTR"
+
+          echo "============================================================"
+          echo "TEST 4: crun execution, namespaces & container standard I/O"
+          echo "============================================================"
+          ALPINE_CTR=$(sudo_buildah from alpine:latest)
+          OUTPUT=$(sudo_buildah run "$ALPINE_CTR" -- /bin/sh -c "echo 'CRUN_OK' && uname -m")
+          echo "$OUTPUT" | grep -q "CRUN_OK"
+          sudo_buildah rm "$ALPINE_CTR"
+
+          echo "============================================================"
+          echo "TEST 5: Multi-stage Dockerfile build (bud), network & caching"
+          echo "============================================================"
+          TEST_DIR=$(mktemp -d)
+          cat << 'EOF' > "$TEST_DIR/Containerfile"
+          FROM alpine:latest AS builder
+          RUN echo "stage-1" > /build.txt
+          RUN wget -q --spider https://quay.io || true
+
+          FROM alpine:latest
+          COPY --from=builder /build.txt /stage-result.txt
+          ENV TEST_VAR="buildah_static_verified"
+          WORKDIR /app
+          RUN echo "final-stage" > app.txt
+          CMD ["cat", "/stage-result.txt"]
+          EOF
+
+          sudo_buildah bud \
+            --layers \
+            --tag localhost/bud-smoke-test:latest \
+            "$TEST_DIR"
+          rm -rf "$TEST_DIR"
+
+          echo "============================================================"
+          echo "TEST 6: Validating generated artifact execution & metadata"
+          echo "============================================================"
+          BUD_CTR=$(sudo_buildah from localhost/bud-smoke-test:latest)
+          RESULT=$(sudo_buildah run "$BUD_CTR" -- cat /stage-result.txt)
+          [ "$RESULT" = "stage-1" ]
+          sudo_buildah rm "$BUD_CTR"
+
+          echo "============================================================"
+          echo "TEST 7: Archive export and round-trip re-import"
+          echo "============================================================"
+          ARCHIVE_PATH="/tmp/test-image.tar"
+          sudo_buildah push localhost/bud-smoke-test:latest "docker-archive:${ARCHIVE_PATH}"
+          sudo_buildah rmi localhost/bud-smoke-test:latest
+          sudo_buildah pull "docker-archive:${ARCHIVE_PATH}"
+          sudo_buildah images | grep -q "bud-smoke-test"
+          sudo rm -f "${ARCHIVE_PATH}"
+
+          echo "============================================================"
+          echo "ALL STATIC BUILDAH VALIDATION CHECKS PASSED SUCCESSFULLY!"
+          echo "============================================================"
+
+      - name: Store artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildah-linux-${{ matrix.arch }}.tar.gz
+          path: buildah-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
 
   release:
-    if: always() && github.event_name != 'pull_request'
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request'
     needs:
+      - prepare
       - build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v8
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
 
-      - name: Get version
-        id: get_version
+      - name: Generate SHA256 checksums
         run: |
-          version="$(cat Dockerfile | grep "ARG BUILDAH_VERSION=" | sed -E 's/ARG BUILDAH_VERSION=//')"
-          echo "::set-output name=version::${version}"
+          cd release-artifacts
+          sha256sum buildah-linux-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
 
-      - name: Create release
-        id: create_release
+      - name: Publish GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          name: "buildah ${{ steps.get_version.outputs.version }}"
-          tag: v${{ steps.get_version.outputs.version }}
+          name: "Buildah v${{ needs.prepare.outputs.buildah_version }}"
+          tag: "v${{ needs.prepare.outputs.buildah_version }}"
           draft: false
-          omitBody: true
-          artifacts: "*/buildah-*.tar.gz"
-          makeLatest: true
           prerelease: false
+          makeLatest: true
           allowUpdates: true
           replacesArtifacts: true
+          artifacts: "release-artifacts/buildah-linux-*.tar.gz,release-artifacts/SHA256SUMS"
