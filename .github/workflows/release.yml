@@ -112,7 +112,7 @@ jobs:
           netavark --version
           aardvark-dns --version
 
-          alias sudo_buildah='sudo env PATH=${PATH} CI=true GIT_TERMINAL_PROMPT=0 NETAVARK_FW=nftables STORAGE_DRIVER=overlay /usr/local/bin/buildah"
+          alias sudo_buildah='sudo env PATH=${PATH} CI=true GIT_TERMINAL_PROMPT=0 NETAVARK_FW=nftables STORAGE_DRIVER=overlay /usr/local/bin/buildah'
 
           echo "============================================================"
           echo "TEST 1: Binary info, storage driver & version verification"
