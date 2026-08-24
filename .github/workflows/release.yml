@@ -158,7 +158,7 @@ jobs:
 
       - name: Package release tarball
         run: |
-          tar -C ./dist -czvf buildah-${{ matrix.arch }}.tar.gz buildah-${{ matrix.arch }}
+          tar -C ./dist -czvf buildah-linux-${{ matrix.arch }}.tar.gz buildah-linux-${{ matrix.arch }}
 
       - name: Verify static binary
         run: |
@@ -260,8 +260,8 @@ jobs:
       - name: Store artifact
         uses: actions/upload-artifact@v4
         with:
-          name: buildah-${{ matrix.arch }}.tar.gz
-          path: buildah-${{ matrix.arch }}.tar.gz
+          name: buildah-linux-${{ matrix.arch }}.tar.gz
+          path: buildah-linux-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
   release:
@@ -285,7 +285,7 @@ jobs:
       - name: Generate SHA256 checksums
         run: |
           cd release-artifacts
-          sha256sum buildah-*.tar.gz > SHA256SUMS
+          sha256sum buildah-linux-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
       - name: Publish GitHub Release
