@@ -25,7 +25,7 @@
   "digest": { "labels": ["bump/digest"] },
   "packageRules": [
     {
-      "description": "Ensure Docker versioning schema for official base image tags",
+      "description": "Disable digest pinning on ARG version variables",
       "matchDatasources": ["docker"],
       "matchPackageNames": [
         "golang",
@@ -33,7 +33,8 @@
         "docker.io/library/golang",
         "docker.io/library/alpine"
       ],
-      "versioning": "docker"
+      "versioning": "docker",
+      "pinDigests": false
     }
   ]
 }
