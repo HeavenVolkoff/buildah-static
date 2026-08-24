@@ -262,6 +262,7 @@ jobs:
         with:
           name: buildah-linux-${{ matrix.arch }}.tar.gz
           path: buildah-linux-${{ matrix.arch }}.tar.gz
+          archive: false
           if-no-files-found: error
 
   release:
