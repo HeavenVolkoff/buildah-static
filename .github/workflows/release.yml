@@ -251,7 +251,7 @@ jobs:
           sudo_buildah rmi localhost/bud-smoke-test:latest
           sudo_buildah pull "docker-archive:${ARCHIVE_PATH}"
           sudo_buildah images | grep -q "bud-smoke-test"
-          rm -f "${ARCHIVE_PATH}"
+          sudo rm -f "${ARCHIVE_PATH}"
 
           echo "============================================================"
           echo "ALL STATIC BUILDAH VALIDATION CHECKS PASSED SUCCESSFULLY!"
