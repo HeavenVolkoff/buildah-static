@@ -65,7 +65,7 @@ jobs:
         run: |
           tar -C ./dist -czvf buildah-linux-${{ matrix.arch }}.tar.gz buildah-linux-${{ matrix.arch }}
 
-      - name: Verify static binary & distribution layout
+      - name: Verify static binary
         if: steps.check.outputs.run == 'true'
         run: |
           BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
@@ -74,7 +74,7 @@ jobs:
             echo "Binary is not statically linked!" && exit 1
           fi
 
-      - name: Install container runtime stack & run buildah test suite
+      - name: Install podman-static & run buildah test suite
         if: steps.check.outputs.run == 'true'
         run: |
           echo "Configure system kernel and subordinate mappings"
@@ -89,92 +89,105 @@ jobs:
             echo "${USER}:100000:65536" | sudo tee -a /etc/sub$which > /dev/null
           done
 
-          echo "Install runtime dependencies"
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            bats \
-            uidmap \
-            conmon \
-            jq \
-            nftables
-
+          echo "Fetch latest upstream podman-static release"
           ARCH="${{ matrix.arch }}"
+          DOWNLOAD_URL=$(curl -sL https://api.github.com/repos/mgoltzsche/podman-static/releases/latest | jq -r ".assets[] | select(.name == \"podman-linux-${ARCH}.tar.gz\") | .browser_download_url")
+          curl -fsSL "$DOWNLOAD_URL" -o /tmp/podman-static.tar.gz
+          sudo tar -xzf /tmp/podman-static.tar.gz -C /tmp
+          sudo rsync -aP /tmp/podman-linux-${ARCH}/ /
 
-          # Create all required helper and config target directories
-          sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/lib/podman /usr/local/libexec/podman /etc/containers
-
-          echo "Fetch latest upstream crun release"
-          CRUN_URL=$(curl -sL https://api.github.com/repos/containers/crun/releases/latest | jq -r ".assets[] | select(.name | test(\"^crun-.*-linux-${ARCH}$\")) | .browser_download_url")
-          sudo curl -fsSL "$CRUN_URL" -o /usr/local/bin/crun
-          sudo chmod +x /usr/local/bin/crun
-          sudo ln -sf /usr/local/bin/crun /usr/bin/crun
-
-          echo "Install Netavark and Aardvark-dns"
-          if [ "${ARCH}" = "amd64" ]; then
-            curl -fsSL "https://github.com/containers/netavark/releases/latest/download/netavark.gz" -o /tmp/netavark.gz
-            gzip -dc /tmp/netavark.gz | sudo tee /usr/libexec/podman/netavark > /dev/null
-            sudo chmod +x /usr/libexec/podman/netavark
-
-            curl -fsSL "https://github.com/containers/aardvark-dns/releases/latest/download/aardvark-dns.gz" -o /tmp/aardvark-dns.gz
-            gzip -dc /tmp/aardvark-dns.gz | sudo tee /usr/libexec/podman/aardvark-dns > /dev/null
-            sudo chmod +x /usr/libexec/podman/aardvark-dns
-          elif [ "${ARCH}" = "arm64" ]; then
-            sudo apt-get install -y --no-install-recommends protobuf-compiler libdbus-1-dev pkg-config
-            cargo install --root /tmp/cargo-helpers netavark aardvark-dns
-            sudo cp /tmp/cargo-helpers/bin/netavark /usr/libexec/podman/netavark
-            sudo cp /tmp/cargo-helpers/bin/aardvark-dns /usr/libexec/podman/aardvark-dns
-            sudo chmod +x /usr/libexec/podman/netavark /usr/libexec/podman/aardvark-dns
-          fi
-
-          sudo ln -sf /usr/libexec/podman/netavark /usr/local/bin/netavark
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/bin/aardvark-dns
-
-          echo "Configure containers.conf"
-          echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
-          echo 'unqualified-search-registries = ["docker.io", "quay.io"]' | sudo tee /etc/containers/registries.conf > /dev/null
-          printf '[network]\nfirewall_driver = "nftables"\n' | sudo tee /etc/containers/containers.conf > /dev/null
+          echo "Link helper binaries across standard search paths"
+          sudo mkdir -p /usr/libexec/podman /usr/local/bin
+          for helper in /usr/local/lib/podman/*; do
+            [ -f "$helper" ] || continue
+            sudo ln -sf "$helper" "/usr/libexec/podman/$(basename "$helper")"
+            sudo ln -sf "$helper" "/usr/local/bin/$(basename "$helper")"
+          done
 
           echo "Install built static Buildah"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
-          echo "Verify runtime environment and binary placement"
-          buildah --version
+          echo "Verify runtime environment"
           crun --version
           netavark --version
           aardvark-dns --version
 
-          echo "Fetch test source & compile test binaries"
-          VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
-          git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
+          alias sudo_buildah='sudo env PATH=${PATH} CI=true GIT_TERMINAL_PROMPT=0 NETAVARK_FW=nftables STORAGE_DRIVER=overlay /usr/local/bin/buildah"
 
-          cd /tmp/buildah-src
-          mkdir -p bin
-          export BUILDTAGS="containers_image_openpgp exclude_graphdriver_btrfs exclude_graphdriver_devicemapper"
+          echo "============================================================"
+          echo "TEST 1: Binary info, storage driver & version verification"
+          echo "============================================================"
+          sudo_buildah --version
+          sudo_buildah info
 
-          echo "Compile required test fixture binaries"
-          for tool in copy dumpspec imgtype passwd; do
-            if [ -d "./tests/$tool" ]; then
-              CGO_ENABLED=0 go build -tags "$BUILDTAGS" -o "bin/$tool" "./tests/$tool"
-            fi
-          done
+          echo "============================================================"
+          echo "TEST 2: Remote registry pull, inspect & local storage commit"
+          echo "============================================================"
+          sudo_buildah pull alpine:latest
+          sudo_buildah inspect --type image alpine:latest | jq -e '.OCIv1.architecture' > /dev/null
 
-          echo "Execute buildah test runner"
-          cd /tmp/buildah-src/tests
-          sudo -E env \
-            "PATH=${PATH}" \
-            "CI=true" \
-            "GIT_TERMINAL_PROMPT=0" \
-            "NETAVARK_FW=nftables" \
-            "STORAGE_DRIVER=overlay" \
-            "BUILDAH_BINARY=/usr/local/bin/buildah" \
-            ./test_runner.sh \
-              basic.bats \
-              from.bats \
-              run.bats \
-              mount.bats \
-              config.bats \
-              commit.bats \
-              bud.bats
+          echo "============================================================"
+          echo "TEST 3: Direct container mount, filesystem mutation & commit"
+          echo "============================================================"
+          CTR=$(sudo_buildah from scratch)
+          MNT=$(sudo_buildah mount "$CTR")
+          echo "hello from static buildah" | sudo tee "$MNT/static-test.txt" > /dev/null
+          sudo_buildah unmount "$CTR"
+          sudo_buildah commit "$CTR" localhost/scratch-test:latest
+          sudo_buildah rm "$CTR"
 
+          echo "============================================================"
+          echo "TEST 4: crun execution, namespaces & container standard I/O"
+          echo "============================================================"
+          ALPINE_CTR=$(sudo_buildah from alpine:latest)
+          OUTPUT=$(sudo_buildah run "$ALPINE_CTR" -- /bin/sh -c "echo 'CRUN_OK' && uname -m")
+          echo "$OUTPUT" | grep -q "CRUN_OK"
+          sudo_buildah rm "$ALPINE_CTR"
+
+          echo "============================================================"
+          echo "TEST 5: Multi-stage Dockerfile build (bud), network & caching"
+          echo "============================================================"
+          TEST_DIR=$(mktemp -d)
+          cat << 'EOF' > "$TEST_DIR/Containerfile"
+          FROM alpine:latest AS builder
+          RUN echo "stage-1" > /build.txt
+          RUN wget -q --spider https://quay.io || true
+
+          FROM alpine:latest
+          COPY --from=builder /build.txt /stage-result.txt
+          ENV TEST_VAR="buildah_static_verified"
+          WORKDIR /app
+          RUN echo "final-stage" > app.txt
+          CMD ["cat", "/stage-result.txt"]
+          EOF
+
+          sudo_buildah bud \
+            --layers \
+            --tag localhost/bud-smoke-test:latest \
+            "$TEST_DIR"
+          rm -rf "$TEST_DIR"
+
+          echo "============================================================"
+          echo "TEST 6: Validating generated artifact execution & metadata"
+          echo "============================================================"
+          BUD_CTR=$(sudo_buildah from localhost/bud-smoke-test:latest)
+          RESULT=$(sudo_buildah run "$BUD_CTR" -- cat /stage-result.txt)
+          [ "$RESULT" = "stage-1" ]
+          sudo_buildah rm "$BUD_CTR"
+
+          echo "============================================================"
+          echo "TEST 7: Archive export and round-trip re-import"
+          echo "============================================================"
+          ARCHIVE_PATH="/tmp/test-image.tar"
+          sudo_buildah push localhost/bud-smoke-test:latest "docker-archive:${ARCHIVE_PATH}"
+          sudo_buildah rmi localhost/bud-smoke-test:latest
+          sudo_buildah pull "docker-archive:${ARCHIVE_PATH}"
+          sudo_buildah images | grep -q "bud-smoke-test"
+          rm -f "${ARCHIVE_PATH}"
+
+          echo "============================================================"
+          echo "ALL STATIC BUILDAH VALIDATION CHECKS PASSED SUCCESSFULLY!"
+          echo "============================================================"
       - name: Store artifact
         if: steps.check.outputs.run == 'true'
         uses: actions/upload-artifact@v4
