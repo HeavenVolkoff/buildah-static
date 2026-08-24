@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       should_build: ${{ steps.eval.outputs.should_build }}
+      should_release: ${{ steps.eval.outputs.should_release }}
       buildah_version: ${{ steps.eval.outputs.buildah_version }}
     steps:
       - name: Checkout repository
@@ -85,12 +86,14 @@ jobs:
             echo "Release ${TAG} does not exist yet."
           fi
 
+          echo "Proceeding with build for Buildah ${TAG}."
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+
           if [ "$RELEASE_EXISTS" = "true" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "Buildah ${TAG} is already published. Skipping build."
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "Buildah ${TAG} is already published. Skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Proceeding with build for Buildah ${TAG}."
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -267,7 +270,7 @@ jobs:
 
   release:
     timeout-minutes: 10
-    if: github.event_name != 'pull_request'
+    if: needs.prepare.outputs.should_release == 'true'
     needs:
       - prepare
       - build
