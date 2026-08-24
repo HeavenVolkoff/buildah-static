@@ -153,8 +153,8 @@ jobs:
           outputs: type=local,dest=./dist
           build-args: |
             BUILDAH_VERSION=${{ needs.prepare.outputs.buildah_version }}
-          cache-from: type=gha,scope=buildah-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=buildah-${{ matrix.arch }}
+          cache-from: type=gha,scope=buildah-linux-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=buildah-linux-${{ matrix.arch }}
 
       - name: Package release tarball
         run: |
@@ -162,7 +162,7 @@ jobs:
 
       - name: Verify static binary
         run: |
-          BIN="./dist/buildah-${{ matrix.arch }}/usr/local/bin/buildah"
+          BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
           file "$BIN"
           if ldd "$BIN" 2>&1 | grep -qv "not a dynamic executable\|statically linked"; then
             echo "Binary is not statically linked!" && exit 1
@@ -171,7 +171,7 @@ jobs:
       - name: Run runtime validation & smoke tests
         run: |
           ARCH="${{ matrix.arch }}"
-          sudo rsync -aP "$(pwd)/dist/buildah-${ARCH}/" /
+          sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
           echo "Verify runtime environment"
           crun --version
