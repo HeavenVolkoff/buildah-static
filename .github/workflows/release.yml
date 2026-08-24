@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   build:
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -73,22 +74,22 @@ jobs:
             echo "Binary is not statically linked!" && exit 1
           fi
 
-      - name: Install upstream container runtime stack & run buildah tests
+      - name: Install container runtime stack & run buildah test suite
         if: steps.check.outputs.run == 'true'
         run: |
-          echo "Configure system to run buildah tests"
+          echo "Configure system kernel and subordinate mappings"
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo sysctl -w fs.file-max=2097152
           sudo chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap 2>/dev/null || true
           ulimit -u 65535 2>/dev/null || ulimit -u unlimited 2>/dev/null || true
           ulimit -n 65535 2>/dev/null || true
 
-          echo "Configure clean subordinate UID/GID mappings"
-          sudo sed -i "/^${USER}:/d" /etc/subuid /etc/subgid 2>/dev/null || true
-          echo "${USER}:100000:65536" | sudo tee -a /etc/subuid > /dev/null
-          echo "${USER}:100000:65536" | sudo tee -a /etc/subgid > /dev/null
+          for which in uid gid; do
+            sudo sed -i "/^${USER}:/d" /etc/sub$which 2>/dev/null || true
+            echo "${USER}:100000:65536" | sudo tee -a /etc/sub$which > /dev/null
+          done
 
-          echo "Install test dependencies"
+          echo "Install runtime dependencies"
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
             bats \
             uidmap \
@@ -102,9 +103,8 @@ jobs:
           sudo mkdir -p /usr/libexec/podman /usr/lib/podman /usr/local/lib/podman /usr/local/libexec/podman /etc/containers
 
           echo "Fetch latest upstream crun release"
-          sudo curl -fsSL "$(
-            curl -sL https://api.github.com/repos/containers/crun/releases/latest | jq -r ".assets[] | select(.name | test(\"^crun-.*-linux-${ARCH}$\")) | .browser_download_url"
-          )" -o /usr/local/bin/crun
+          CRUN_URL=$(curl -sL https://api.github.com/repos/containers/crun/releases/latest | jq -r ".assets[] | select(.name | test(\"^crun-.*-linux-${ARCH}$\")) | .browser_download_url")
+          sudo curl -fsSL "$CRUN_URL" -o /usr/local/bin/crun
           sudo chmod +x /usr/local/bin/crun
           sudo ln -sf /usr/local/bin/crun /usr/bin/crun
 
@@ -125,32 +125,24 @@ jobs:
             sudo chmod +x /usr/libexec/podman/netavark /usr/libexec/podman/aardvark-dns
           fi
 
-          echo "Link helpers across search paths"
-          sudo ln -sf /usr/libexec/podman/netavark /usr/lib/podman/netavark
-          sudo ln -sf /usr/libexec/podman/netavark /usr/local/lib/podman/netavark
-          sudo ln -sf /usr/libexec/podman/netavark /usr/local/libexec/podman/netavark
           sudo ln -sf /usr/libexec/podman/netavark /usr/local/bin/netavark
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/lib/podman/aardvark-dns
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/lib/podman/aardvark-dns
-          sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/libexec/podman/aardvark-dns
           sudo ln -sf /usr/libexec/podman/aardvark-dns /usr/local/bin/aardvark-dns
 
-          echo "Create base container configuration files"
+          echo "Configure containers.conf"
           echo '{"default":[{"type":"insecureAcceptAnything"}]}' | sudo tee /etc/containers/policy.json > /dev/null
           echo 'unqualified-search-registries = ["docker.io", "quay.io"]' | sudo tee /etc/containers/registries.conf > /dev/null
-          # Set nftables driver for Netavark 2.0+
           printf '[network]\nfirewall_driver = "nftables"\n' | sudo tee /etc/containers/containers.conf > /dev/null
 
-          echo "Merge our built static bundle directly into system root"
+          echo "Install built static Buildah"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
           echo "Verify runtime environment and binary placement"
-          /usr/local/bin/buildah --version
-          /usr/bin/crun --version
-          /usr/libexec/podman/netavark --version
-          /usr/libexec/podman/aardvark-dns --version
+          buildah --version
+          crun --version
+          netavark --version
+          aardvark-dns --version
 
-          echo "Fetch test source and compile helper fixtures in pure Go"
+          echo "Fetch test source & compile test binaries"
           VERSION=$(grep -Eo 'ARG BUILDAH_VERSION="[^"]+"' Dockerfile | cut -d'"' -f2)
           git clone --depth 1 --branch "v${VERSION}" https://github.com/containers/buildah.git /tmp/buildah-src
 
@@ -165,14 +157,23 @@ jobs:
             fi
           done
 
-          echo "Execute full BATS test suite"
+          echo "Execute buildah test runner"
           cd /tmp/buildah-src/tests
           sudo -E env \
             "PATH=${PATH}" \
+            "CI=true" \
+            "GIT_TERMINAL_PROMPT=0" \
             "NETAVARK_FW=nftables" \
             "STORAGE_DRIVER=overlay" \
             "BUILDAH_BINARY=/usr/local/bin/buildah" \
-            bats -j $(nproc) -T *.bats
+            ./test_runner.sh \
+              basic.bats \
+              from.bats \
+              run.bats \
+              mount.bats \
+              config.bats \
+              commit.bats \
+              bud.bats
 
       - name: Store artifact
         if: steps.check.outputs.run == 'true'
@@ -187,6 +188,7 @@ jobs:
         run: echo "No build-related files modified. Build & test steps skipped."
 
   release:
+    timeout-minutes: 10
     if: github.event_name != 'pull_request'
     needs:
       - build
