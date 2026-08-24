@@ -3,6 +3,7 @@
   "extends": [
     "config:recommended",
     "customManagers:dockerfileVersions",
+    "customManagers:githubActionsVersions",
     ":label(type/renovate)",
     ":disableRateLimiting",
     ":automergeAll",
@@ -22,30 +23,16 @@
   "patch": { "labels": ["bump/patch"] },
   "pin": { "labels": ["bump/pin"] },
   "digest": { "labels": ["bump/digest"] },
-
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Update Dockerfile BuildKit #syntax directives",
-      "managerFilePatterns": ["**/[Dd]ockerfile*", "**/[Cc]ontainerfile*"],
-      "matchStrings": [
-        "#\\s*syntax=(?<depName>[^:\\s]+):(?<currentValue>[^\\s]+)"
-      ],
-      "datasourceTemplate": "docker"
-    }
-  ],
-
   "packageRules": [
     {
-      "description": "Strip leading 'v' from upstream Buildah GitHub release tags",
-      "matchDatasources": ["github-releases"],
-      "matchPackageNames": ["containers/buildah"],
-      "extractVersion": "^v(?<version>.+)$"
-    },
-    {
       "description": "Ensure Docker versioning schema for official base image tags",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["golang", "alpine", "docker.io/library/golang", "docker.io/library/alpine"],
+      "matchDataSources": ["docker"],
+      "matchPackageNames": [
+        "golang",
+        "alpine",
+        "docker.io/library/golang",
+        "docker.io/library/alpine"
+      ],
       "versioning": "docker"
     }
   ]

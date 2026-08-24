@@ -4,8 +4,9 @@
 ARG GOLANG_VERSION="1.27"
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_VERSION="3.24"
-# renovate: datasource=github-releases depName=containers/buildah
-ARG BUILDAH_VERSION="1.45.0"
+
+# Synchronized with podman-static
+ARG BUILDAH_VERSION
 
 #-- Import xx toolchain
 FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx:latest AS xx
