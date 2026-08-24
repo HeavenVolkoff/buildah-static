@@ -158,11 +158,11 @@ jobs:
 
       - name: Package release tarball
         run: |
-          tar -C ./dist -czvf buildah-linux-${{ matrix.arch }}.tar.gz buildah-linux-${{ matrix.arch }}
+          tar -C ./dist -czvf buildah-${{ matrix.arch }}.tar.gz buildah-${{ matrix.arch }}
 
       - name: Verify static binary
         run: |
-          BIN="./dist/buildah-linux-${{ matrix.arch }}/usr/local/bin/buildah"
+          BIN="./dist/buildah-${{ matrix.arch }}/usr/local/bin/buildah"
           file "$BIN"
           if ldd "$BIN" 2>&1 | grep -qv "not a dynamic executable\|statically linked"; then
             echo "Binary is not statically linked!" && exit 1
@@ -171,7 +171,7 @@ jobs:
       - name: Run runtime validation & smoke tests
         run: |
           ARCH="${{ matrix.arch }}"
-          sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
+          sudo rsync -aP "$(pwd)/dist/buildah-${ARCH}/" /
 
           echo "Verify runtime environment"
           crun --version
