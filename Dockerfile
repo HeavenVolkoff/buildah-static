@@ -1,4 +1,4 @@
-#syntax=docker/dockerfile:1
+#syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
 
 # renovate: datasource=docker depName=golang versioning=docker
 ARG GOLANG_VERSION="1.27"
@@ -9,7 +9,7 @@ ARG ALPINE_VERSION="3.24"
 ARG BUILDAH_VERSION
 
 #-- Import xx toolchain
-FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx:latest AS xx
+FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx:latest@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707 AS xx
 
 #-- Source Stage
 FROM --platform=$BUILDPLATFORM docker.io/library/alpine:${ALPINE_VERSION} AS src
