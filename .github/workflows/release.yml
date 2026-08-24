@@ -260,8 +260,8 @@ jobs:
       - name: Store artifact
         uses: actions/upload-artifact@v4
         with:
-          name: buildah-linux-${{ matrix.arch }}.tar.gz
-          path: buildah-linux-${{ matrix.arch }}.tar.gz
+          name: buildah-${{ matrix.arch }}.tar.gz
+          path: buildah-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
   release:
@@ -278,13 +278,14 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: 'buildah-*'
           path: release-artifacts
           merge-multiple: true
 
       - name: Generate SHA256 checksums
         run: |
           cd release-artifacts
-          sha256sum buildah-linux-*.tar.gz > SHA256SUMS
+          sha256sum buildah-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
       - name: Publish GitHub Release
@@ -297,4 +298,4 @@ jobs:
           makeLatest: true
           allowUpdates: true
           replacesArtifacts: true
-          artifacts: "release-artifacts/buildah-linux-*.tar.gz,release-artifacts/SHA256SUMS"
+          artifacts: "release-artifacts/buildah-*.tar.gz,release-artifacts/SHA256SUMS"
