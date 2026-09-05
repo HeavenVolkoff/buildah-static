@@ -16,7 +16,7 @@ permissions:
 
 env:
   # renovate: datasource=github-releases depName=mgoltzsche/podman-static
-  PODMAN_STATIC_VERSION: "v5.8.4"
+  PODMAN_STATIC_VERSION: "v6.1.1"
 
 jobs:
   prepare:
