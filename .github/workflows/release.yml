@@ -137,6 +137,7 @@ jobs:
           ARCH="${{ matrix.arch }}"
           sudo tar -xzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" -C /
 
+          set -x
           sudo mkdir -p /usr/libexec/podman /usr/local/bin
           for helper in /usr/local/lib/podman/*; do
             { [ -f "$helper" ] && [ -x "$helper" ]; } || continue
@@ -176,6 +177,7 @@ jobs:
           ARCH="${{ matrix.arch }}"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
+          echo "PATH: $PATH"
           echo "Verify runtime environment"
           crun --version
           netavark --version
