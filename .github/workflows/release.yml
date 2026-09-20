@@ -135,7 +135,7 @@ jobs:
           done
 
           ARCH="${{ matrix.arch }}"
-          sudo tar -xvzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" -C /
+          sudo tar -xvzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" --skip-component 1 -C /
 
           set -x
           ls -lahcR /usr/local/lib/podman
