@@ -135,9 +135,8 @@ jobs:
           done
 
           ARCH="${{ matrix.arch }}"
-          sudo tar -xvzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" --strip-components 1 -C /
+          sudo tar -xzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" --strip-components 1 -C /
 
-          set -x
           ls -lahcR /usr/local/lib/podman
           sudo mkdir -p /usr/libexec/podman /usr/local/bin
           for helper in /usr/local/lib/podman/*; do
@@ -178,7 +177,6 @@ jobs:
           ARCH="${{ matrix.arch }}"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
-          echo "PATH: $PATH"
           echo "Verify runtime environment"
           crun --version
           netavark --version
@@ -187,6 +185,8 @@ jobs:
           sudo_buildah() {
             sudo env PATH="${PATH}" CI=true GIT_TERMINAL_PROMPT=0 NETAVARK_FW=nftables STORAGE_DRIVER=overlay /usr/local/bin/buildah "$@"
           }
+
+          set -x
 
           echo "============================================================"
           echo "TEST 1: Binary info, storage driver & version verification"
