@@ -135,13 +135,18 @@ jobs:
           done
 
           ARCH="${{ matrix.arch }}"
-          sudo tar -xzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" -C /
+          sudo tar -xzf "/tmp/podman-cache/podman-linux-${ARCH}.tar.gz" --strip-components 1 -C /
 
-          sudo mkdir -p /usr/libexec/podman /usr/local/bin
+          sudo mkdir -p /usr/libexec/podman /usr/local/bin /usr/bin
+          for helper in /usr/local/bin/*; do
+            { [ -f "$helper" ] && [ -x "$helper" ]; } || continue
+            sudo ln -sf "$helper" "/usr/bin/$(basename "$helper")"
+          done
           for helper in /usr/local/lib/podman/*; do
             { [ -f "$helper" ] && [ -x "$helper" ]; } || continue
             sudo ln -sf "$helper" "/usr/libexec/podman/$(basename "$helper")"
             sudo ln -sf "$helper" "/usr/local/bin/$(basename "$helper")"
+            sudo ln -sf "$helper" "/usr/bin/$(basename "$helper")"
           done
 
       - name: Set up Docker Buildx
