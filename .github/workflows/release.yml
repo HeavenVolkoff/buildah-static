@@ -183,6 +183,8 @@ jobs:
 
           export NETAVARK_FW=nftables
 
+          echo 'firewall_driver = "nftables"' > /usr/share/containers/containers.conf
+
           echo "Verify runtime environment"
           crun --version
           netavark --version
