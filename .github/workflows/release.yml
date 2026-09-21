@@ -182,7 +182,7 @@ jobs:
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
           sudo apt update -yqq && sudo apt install -yqq nftables
-          echo 'firewall_driver = "nftables"' > /usr/share/containers/containers.conf
+          echo 'firewall_driver = "nftables"' | sudo tee /usr/share/containers/containers.conf
 
           echo "Verify runtime environment"
           crun --version
