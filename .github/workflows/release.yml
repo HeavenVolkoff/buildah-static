@@ -181,6 +181,8 @@ jobs:
           ARCH="${{ matrix.arch }}"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
 
+          export NETAVARK_FW=nftables
+
           echo "Verify runtime environment"
           crun --version
           netavark --version
