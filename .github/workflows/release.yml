@@ -20,7 +20,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       should_build: ${{ steps.eval.outputs.should_build }}
       should_release: ${{ steps.eval.outputs.should_release }}
@@ -105,9 +105,9 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-24.04
+            runner: ubuntu-26.04
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-26.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout repository
@@ -180,6 +180,9 @@ jobs:
         run: |
           ARCH="${{ matrix.arch }}"
           sudo rsync -aP "$(pwd)/dist/buildah-linux-${ARCH}/" /
+
+          sudo apt update -yqq && sudo apt install -yqq nftables
+          echo 'firewall_driver = "nftables"' | sudo tee /usr/share/containers/containers.conf
 
           echo "Verify runtime environment"
           crun --version
@@ -279,7 +282,7 @@ jobs:
     needs:
       - prepare
       - build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
